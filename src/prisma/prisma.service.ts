@@ -22,8 +22,17 @@ export class PrismaService
       return;
     }
 
-    await this.$connect();
-    this.connected = true;
+    try {
+      await this.$connect();
+      this.connected = true;
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown Prisma error';
+      this.logger.warn(
+        `Prisma connection failed; continuing without DB connection. ${message}`,
+      );
+      this.connected = false;
+    }
   }
 
   async onModuleDestroy() {

@@ -1,0 +1,214 @@
+import { HttpService } from '@nestjs/axios';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { AxiosError } from 'axios';
+import { firstValueFrom } from 'rxjs';
+
+type QueryValue = string | number | boolean | undefined;
+type QueryParams = Record<string, QueryValue>;
+
+@Injectable()
+export class LeyrService {
+  private readonly logger = new Logger(LeyrService.name);
+  private readonly baseUrl: string;
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+  private readonly encryptionKey: string;
+  private readonly emr: string;
+
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    this.baseUrl = this.configService.get<string>(
+      'LEYR_API_BASE_URL',
+      'https://api.leyr.io/api',
+    );
+    this.clientId = this.configService.get<string>('LEYR_CLIENT_ID', '');
+    this.clientSecret = this.configService.get<string>('LEYR_CLIENT_SECRET', '');
+    this.encryptionKey = this.configService.get<string>(
+      'LEYR_ENCRYPTION_KEY',
+      '',
+    );
+    this.emr = this.configService.get<string>('LEYR_EMR', 'opus');
+  }
+
+  private getHeaders() {
+    const headers: Record<string, string> = {
+      'x-leyr-client-id': this.clientId,
+      'x-leyr-client-secret': this.clientSecret,
+      'Content-Type': 'application/json',
+    };
+
+    if (this.encryptionKey) {
+      headers['x-leyr-encryption-key'] = this.encryptionKey;
+    }
+
+    return headers;
+  }
+
+  private assertCredentials() {
+    if (!this.clientId || !this.clientSecret) {
+      this.logger.error('Leyr credentials are missing in environment variables');
+      throw new Error(
+        'Leyr credentials are missing. Set LEYR_CLIENT_ID and LEYR_CLIENT_SECRET.',
+      );
+    }
+  }
+
+  private resolveEmr(emr?: string): string {
+    return emr ?? this.emr;
+  }
+
+  private async get(path: string, params?: QueryParams): Promise<unknown> {
+    this.assertCredentials();
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.baseUrl}${path}`, {
+          headers: this.getHeaders(),
+          params,
+        }),
+      );
+
+      return response.data;
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<Record<string, unknown>>;
+      const status = axiosError.response?.status ?? 500;
+      const data = axiosError.response?.data;
+      const message =
+        typeof data?.detail === 'string'
+          ? data.detail
+          : axiosError.message || 'Leyr API request failed';
+
+      throw new HttpException(
+        {
+          message,
+          status,
+          leyr: data ?? null,
+        },
+        status,
+      );
+    }
+  }
+
+  private async getWithFallback(
+    primaryPath: string,
+    fallbackPath: string,
+    params?: QueryParams,
+  ): Promise<unknown> {
+    try {
+      return await this.get(primaryPath, params);
+    } catch (error: unknown) {
+      if (!(error instanceof HttpException)) {
+        throw error;
+      }
+
+      const response = error.getResponse() as
+        | { leyr?: { detail?: string }; message?: string }
+        | undefined;
+      const detail =
+        response?.leyr?.detail ?? (typeof response?.message === 'string'
+          ? response.message
+          : '');
+      const shouldFallback =
+        error.getStatus() === 400 &&
+        typeof detail === 'string' &&
+        detail.includes("loc': ('path', 'emr')");
+
+      if (!shouldFallback) {
+        throw error;
+      }
+
+      return this.get(fallbackPath, params);
+    }
+  }
+
+  getEmrs() {
+    return this.get('/emrs');
+  }
+
+  getCareUnits(emr?: string) {
+    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units`);
+  }
+
+  findPatients(
+    careUnitId: string,
+    firstName?: string,
+    lastName?: string,
+    emr?: string,
+  ) {
+    const resolvedEmr = this.resolveEmr(emr);
+    const params = {
+      first_name: firstName,
+      last_name: lastName,
+      care_unit_id: careUnitId,
+      emr: resolvedEmr,
+    };
+
+    return this.getWithFallback(
+      `/emrs/${resolvedEmr}/care-units/${careUnitId}/patients`,
+      '/patients',
+      params,
+    );
+  }
+
+  getPatient(careUnitId: string, patientId: string, emr?: string) {
+    const resolvedEmr = this.resolveEmr(emr);
+    return this.getWithFallback(
+      `/emrs/${resolvedEmr}/care-units/${careUnitId}/patients/${patientId}`,
+      `/patients/${patientId}`,
+      {
+        care_unit_id: careUnitId,
+        emr: resolvedEmr,
+      },
+    );
+  }
+
+  getHealthcareServices(careUnitId: string, emr?: string) {
+    return this.get(
+      `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/healthcare-services`,
+    );
+  }
+
+  getResources(careUnitId: string, emr?: string) {
+    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/resources`);
+  }
+
+  getTimeslots(
+    careUnitId: string,
+    resourceId?: string,
+    healthcareServiceId?: string,
+    start?: string,
+    end?: string,
+    emr?: string,
+  ) {
+    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/timeslots`, {
+      resource_id: resourceId,
+      healthcare_service_id: healthcareServiceId,
+      start,
+      end,
+    });
+  }
+
+  getAppointments(
+    careUnitId: string,
+    patientId?: string,
+    start?: string,
+    end?: string,
+    emr?: string,
+  ) {
+    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/appointments`, {
+      patient_id: patientId,
+      start,
+      end,
+    });
+  }
+
+  getMedicalNotes(careUnitId: string, patientId: string, emr?: string) {
+    return this.get(`/emrs/${this.resolveEmr(emr)}/medical-notes`, {
+      care_unit_id: careUnitId,
+      patient_id: patientId,
+    });
+  }
+}
