@@ -7,6 +7,8 @@ import { LeyrModule } from './integrations/leyr/leyr.module';
 import { GohighlevelModule } from './integrations/gohighlevel/gohighlevel.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { CalendarSyncModule } from './sync/calendar-sync.module';
+import { AuthModule } from './auth/auth.module';
+import { MasterDataModule } from './master-data/master-data.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { CalendarSyncModule } from './sync/calendar-sync.module';
     GohighlevelModule,
     PrismaModule,
     CalendarSyncModule,
+    AuthModule,
+    MasterDataModule,
   ],
 })
 export class AppModule {}

@@ -7,3 +7,77 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenId    String   @unique
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenId, revokedAt])
+}
+
+model CareUnit {
+  id            String          @id
+  emrId         String          @unique
+  name          String
+  address       Json
+  instanceId    Int
+  instanceName  String?
+  phones        Json?
+  emails        Json?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  healthService HealthService[]
+  resources     Resource[]
+}
+
+model HealthService {
+  id          String   @id
+  emrId       String   @unique
+  name        String
+  description String?
+  price       Float?
+  duration    Int
+  category    String?
+  careUnitId  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  careUnit    CareUnit @relation(fields: [careUnitId], references: [id], onDelete: Cascade)
+
+  @@index([careUnitId])
+}
+
+model Resource {
+  id             String   @id
+  emrId          String   @unique
+  externalId     String?
+  externalIdType String?
+  type           String
+  emails         Json?
+  name           String
+  firstName      String?
+  lastName       String?
+  imageUrl       String?
+  description    String?
+  careUnitId     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  careUnit       CareUnit @relation(fields: [careUnitId], references: [id], onDelete: Cascade)
+
+  @@index([careUnitId])
+}
+

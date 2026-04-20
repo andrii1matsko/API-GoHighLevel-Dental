@@ -1,70 +1,156 @@
-# Opus Dental API (NestJS Monolith)
+# Opus Dental API (NestJS + Docker Postgres)
 
 Backend API for Opus Dental with:
 - Layer API integration as the source of appointment data
 - GoHighLevel calendar sync as the destination
+- Prisma + PostgreSQL running in Docker
+- Auth endpoints: signup, login, logout
 
-## Quick start
+## 1) Start Postgres in Docker
 
-1. Install dependencies:
+```bash
+docker compose up -d postgres
+```
+
+Check container health:
+
+```bash
+docker compose ps
+```
+
+Tail database logs:
+
+```bash
+docker compose logs -f postgres
+```
+
+## 2) Install and configure app
+
+Install dependencies:
 
 ```bash
 pnpm install
 ```
 
-2. Copy env file and set credentials:
+Copy environment variables:
 
 ```bash
 cp .env.example .env
 ```
 
-3. Run in development:
+Important variables to set in `.env`:
+- `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/opus_dental?schema=public`
+- `JWT_SECRET=<your-strong-secret>`
+- `JWT_ACCESS_TOKEN_EXPIRES_IN=3600`
+- all Layer / Leyr / GoHighLevel keys you use
+
+## 3) Run Prisma migrations
+
+Generate Prisma client:
+
+```bash
+pnpm prisma:generate
+```
+
+Apply migrations:
+
+```bash
+pnpm prisma:migrate:deploy
+```
+
+For local iterative development, you can use:
+
+```bash
+pnpm prisma:migrate:dev
+```
+
+## 4) Run the API
 
 ```bash
 pnpm start:dev
 ```
 
-API runs on `http://localhost:3000` with global prefix `/api`.
+API base URL: `http://localhost:3000/api`  
+Swagger docs: `http://localhost:3000/api/docs`
 
-## Endpoints
+## 5) Endpoints
 
-- `GET /api/health` - basic health check
-- `POST /api/sync/calendar` - trigger manual Layer -> GoHighLevel sync
-  - optional body:
-    ```json
-    { "reason": "manual-run" }
-    ```
+### Health
 
-## Scheduled sync
+- `GET /api/health`
 
-The calendar sync job runs every 10 minutes using `@nestjs/schedule`.
+### Auth
 
-## Environment variables
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
 
-See `.env.example`.
+### Sync
 
-Required keys:
-- `DATABASE_URL` (Postgres connection string for Prisma)
-- `LAYER_API_BASE_URL`
-- `LAYER_API_KEY`
-- `GHL_API_BASE_URL` (defaults to `https://services.leadconnectorhq.com`)
-- `GHL_API_KEY`
-- `GHL_LOCATION_ID`
-- `GHL_CALENDAR_ID`
+- `POST /api/sync/calendar` (manual Layer -> GoHighLevel sync)
 
-## Scripts
+## 6) Test commands (curl)
 
-- `pnpm start:dev` - run in watch mode
-- `pnpm build` - compile production build
-- `pnpm test` - unit tests
-- `pnpm test:e2e` - end-to-end tests
+Signup:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "doctor@opusdental.com",
+    "password": "StrongPassword123!",
+    "name": "Dr. Jane Doe"
+  }'
+```
+
+Login:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "doctor@opusdental.com",
+    "password": "StrongPassword123!"
+  }'
+```
+
+Logout (replace `<TOKEN>` with `accessToken` from login):
+
+```bash
+curl -X POST http://localhost:3000/api/auth/logout \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+Health check:
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+Trigger calendar sync:
+
+```bash
+curl -X POST http://localhost:3000/api/sync/calendar \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"manual-run"}'
+```
+
+## Prisma models included
+
+- `User`:
+  - `id`, `email` (unique), `passwordHash`, `name`, timestamps
+- `Session`:
+  - token/session tracking for logout
+  - `tokenId` (unique), `userId`, `expiresAt`, `revokedAt`
+
+Migration file:
+- `prisma/migrations/20260420000000_add_auth_models/migration.sql`
+
+## Useful scripts
+
+- `pnpm db:up` - start Docker Postgres
+- `pnpm db:down` - stop containers
+- `pnpm db:logs` - tail Postgres logs
 - `pnpm prisma:generate` - generate Prisma client
+- `pnpm prisma:migrate:deploy` - apply existing migrations
 - `pnpm prisma:migrate:dev` - create/apply local migration
-
-## Prisma scaffold
-
-Prisma setup is included with minimal boilerplate only:
-- schema file at `prisma/schema.prisma`
-- global `PrismaModule` and `PrismaService` in `src/prisma`
-
-No models or business logic are added yet, so you can design tables later.
