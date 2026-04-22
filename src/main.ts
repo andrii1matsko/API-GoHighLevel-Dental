@@ -16,9 +16,7 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Opus Dental API')
-    .setDescription(
-      'API for calendar sync and Leyr Opus read-only testing endpoints.',
-    )
+    .setDescription('API for GoHighLevel and Leyr Opus integration endpoints.')
     .setVersion('1.0')
     .addTag('Leyr (Opus Test)')
     .build();

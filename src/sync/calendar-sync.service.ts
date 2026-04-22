@@ -1,16 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
-import { LayerApiService } from '../integrations/layer/layer-api.service';
 
 @Injectable()
 export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
 
-  constructor(
-    private readonly layerApiService: LayerApiService,
-    private readonly gohighlevelService: GohighlevelService,
-  ) {}
+  constructor() {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handleScheduledSync() {
@@ -18,23 +13,16 @@ export class CalendarSyncService {
   }
 
   async syncAppointments(trigger: string) {
-    this.logger.log(`Starting calendar sync (${trigger})`);
-
-    const appointments = await this.layerApiService.getUpcomingAppointments();
-
-    for (const appointment of appointments) {
-      await this.gohighlevelService.upsertAppointment(appointment);
-    }
+    this.logger.log(
+      `Skipping calendar sync (${trigger}): Layer integration has been removed`,
+    );
 
     const result = {
       trigger,
-      syncedCount: appointments.length,
+      syncedCount: 0,
+      skipped: true,
       completedAt: new Date().toISOString(),
     };
-
-    this.logger.log(
-      `Calendar sync completed (${trigger}) with ${appointments.length} appointment(s)`,
-    );
 
     return result;
   }

@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HealthModule } from './health/health.module';
-import { LayerApiModule } from './integrations/layer/layer-api.module';
 import { LeyrModule } from './integrations/leyr/leyr.module';
 import { GohighlevelModule } from './integrations/gohighlevel/gohighlevel.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -18,7 +17,6 @@ import { MasterDataModule } from './master-data/master-data.module';
     }),
     ScheduleModule.forRoot(),
     HealthModule,
-    LayerApiModule,
     LeyrModule,
     GohighlevelModule,
     PrismaModule,
