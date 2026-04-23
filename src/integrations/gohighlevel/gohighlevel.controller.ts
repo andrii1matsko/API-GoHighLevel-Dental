@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -24,6 +26,7 @@ import {
 } from './dto/location-token.dto';
 import {
   CreateAppointmentDto,
+  DeleteEventDto,
   GetCalendarFreeSlotsQueryDto,
   GetCalendarEventsQueryDto,
   GetCalendarServiceLocationsQueryDto,
@@ -31,6 +34,7 @@ import {
   GetCalendarsQueryDto,
   GohighlevelAccessTokenQueryDto,
   GohighlevelLocationScopedQueryDto,
+  UpdateAppointmentDto,
 } from './dto/calendars.dto';
 
 @ApiTags('GoHighLevel')
@@ -282,5 +286,46 @@ export class GohighlevelController {
   })
   createAppointment(@Body() body: CreateAppointmentDto) {
     return this.gohighlevelService.createAppointment(body);
+  }
+
+  @Put('calendars/events/appointments/:eventId')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Update appointment by ID' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        id: '0TkCdp9PfvLeWKYRRvIz',
+        calendarId: 'CVokAlI8fgw4WYWoCtQz',
+        locationId: 'C2QujeCh8ZnC7al2InWR',
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Missing eventId or invalid request body' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  updateAppointment(
+    @Param('eventId') eventId: string,
+    @Body() body: UpdateAppointmentDto,
+  ) {
+    return this.gohighlevelService.updateAppointment(eventId, body);
+  }
+
+  @Delete('calendars/events/:eventId')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Delete event by ID' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        succeeded: true,
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Missing eventId' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  deleteEvent(@Param('eventId') eventId: string, @Body() body: DeleteEventDto) {
+    return this.gohighlevelService.deleteEvent(eventId, body);
   }
 }

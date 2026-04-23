@@ -7,6 +7,7 @@ import { RefreshGohighlevelTokenDto } from './dto/refresh-token.dto';
 import { CreateLocationTokenDto } from './dto/location-token.dto';
 import {
   CreateAppointmentDto,
+  DeleteEventDto,
   GetCalendarEventsQueryDto,
   GetCalendarFreeSlotsQueryDto,
   GetCalendarServiceLocationsQueryDto,
@@ -14,6 +15,7 @@ import {
   GetCalendarsQueryDto,
   GohighlevelAccessTokenQueryDto,
   GohighlevelLocationScopedQueryDto,
+  UpdateAppointmentDto,
 } from './dto/calendars.dto';
 
 export interface ExternalAppointment {
@@ -540,6 +542,79 @@ export class GohighlevelService {
             'Failed to create GoHighLevel appointment';
 
       this.logger.error('GoHighLevel create appointment failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async updateAppointment(eventId: string, payload: UpdateAppointmentDto) {
+    const token = this.resolveAccessToken(payload.accessToken);
+    if (!eventId) {
+      throw new HttpException('Missing eventId', 400);
+    }
+
+    const requestPayload = {
+      ...payload,
+    };
+    delete (requestPayload as { accessToken?: string }).accessToken;
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.put(
+          `${this.baseUrl}/calendars/events/appointments/${eventId}`,
+          requestPayload,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Version: '2021-04-15',
+            },
+          },
+        ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to update GoHighLevel appointment';
+
+      this.logger.error('GoHighLevel update appointment failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async deleteEvent(eventId: string, payload: DeleteEventDto) {
+    const token = this.resolveAccessToken(payload.accessToken);
+    if (!eventId) {
+      throw new HttpException('Missing eventId', 400);
+    }
+    const requestPayload = {
+      ...payload,
+    };
+    delete (requestPayload as { accessToken?: string }).accessToken;
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.delete(`${this.baseUrl}/calendars/events/${eventId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Version: '2021-04-15',
+          },
+          data: requestPayload,
+        }),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ?? 'Failed to delete GoHighLevel event';
+
+      this.logger.error('GoHighLevel delete event failed', details);
       throw new HttpException(details, status);
     }
   }
