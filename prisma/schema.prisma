@@ -81,3 +81,81 @@ model Resource {
   @@index([careUnitId])
 }
 
+model LeyrAppointment {
+  id                  String   @id @default(cuid())
+  leyrAppointmentId   String   @unique
+  emr                 String
+  emrId               String?
+  careUnitId          String
+  patientId           String
+  resourceId          String
+  healthcareServiceId String
+  startAt             DateTime
+  endAt               DateTime
+  status              String?
+  description         String?
+  comment             String?
+  participants        Json?
+  healthcareServices  Json?
+  rawPayload          Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  syncRecords AppointmentSync[]
+
+  @@index([emr, careUnitId, startAt])
+  @@index([patientId])
+  @@index([resourceId])
+}
+
+model GhlAppointment {
+  id                  String   @id @default(cuid())
+  ghlAppointmentId    String   @unique
+  locationId          String
+  calendarId          String
+  contactId           String
+  assignedUserId      String?
+  startAt             DateTime?
+  endAt               DateTime?
+  title               String?
+  status              String?
+  meetingLocationType String?
+  address             String?
+  isRecurring         Boolean?
+  rrule               String?
+  rawPayload          Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  syncRecords AppointmentSync[]
+
+  @@index([locationId, calendarId, startAt])
+  @@index([contactId])
+  @@index([assignedUserId])
+}
+
+model AppointmentSync {
+  id                String   @id @default(cuid())
+  direction         String
+  status            String
+  sourceSystem      String
+  sourceExternalId  String
+  targetSystem      String
+  targetExternalId  String?
+  idempotencyKey    String?  @unique
+  errorMessage      String?
+  retryCount        Int      @default(0)
+  syncedAt          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  leyrAppointmentId String?
+  ghlAppointmentId  String?
+
+  leyrAppointment LeyrAppointment? @relation(fields: [leyrAppointmentId], references: [id], onDelete: SetNull)
+  ghlAppointment  GhlAppointment?  @relation(fields: [ghlAppointmentId], references: [id], onDelete: SetNull)
+
+  @@index([direction, status, createdAt])
+  @@index([sourceSystem, sourceExternalId])
+  @@index([targetSystem, targetExternalId])
+}
+

@@ -44,6 +44,23 @@ Important variables to set in `.env`:
 - `JWT_ACCESS_TOKEN_EXPIRES_IN=3600`
 - all Layer / Leyr / GoHighLevel keys you use
 
+### GoHighLevel token automation
+
+The GoHighLevel integration now supports automatic token lifecycle management:
+
+- set `GHL_AGENCY_REFRESH_TOKEN` once
+- set `GHL_COMPANY_ID` and `GHL_LOCATION_ID_OAUTH`
+- optional: set `GHL_TOKEN_REFRESH_LEEWAY_SECONDS` (default `300`)
+
+With these values, calendar/service/event endpoints automatically:
+
+- refresh agency access token from refresh token
+- generate location-scoped token
+- cache tokens and refresh before expiry
+- retry once on `401` with a forced refresh
+
+You can still pass `accessToken` in request payload/query to override this behavior per request.
+
 ## 3) Run Prisma migrations
 
 Generate Prisma client:
@@ -88,6 +105,25 @@ Swagger docs: `http://localhost:3000/api/docs`
 ### Sync
 
 - `POST /api/sync/calendar` (manual Layer -> GoHighLevel sync)
+
+### Leyr appointment creation
+
+- `POST /api/leyr/emrs/:emr/care-units/:careUnitId/appointments`
+
+Example:
+
+```bash
+curl -X POST "http://localhost:3000/api/leyr/emrs/opus/care-units/<CARE_UNIT_ID>/appointments" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "start": "2026-04-24T10:00:00+02:00",
+    "end": "2026-04-24T10:30:00+02:00",
+    "healthcare_service_id": "<HEALTHCARE_SERVICE_ID>",
+    "resource_id": "<RESOURCE_ID>",
+    "patient_id": "<PATIENT_ID>",
+    "comment": "Booked via sync service"
+  }'
+```
 
 ## 6) Test commands (curl)
 
@@ -142,6 +178,12 @@ curl -X POST http://localhost:3000/api/sync/calendar \
 - `Session`:
   - token/session tracking for logout
   - `tokenId` (unique), `userId`, `expiresAt`, `revokedAt`
+- `LeyrAppointment`:
+  - normalized Leyr appointment store (`leyrAppointmentId`, status, participants, services)
+- `GhlAppointment`:
+  - normalized GoHighLevel appointment store (`ghlAppointmentId`, status, recurrence fields)
+- `AppointmentSync`:
+  - cross-system sync tracking (`direction`, `status`, source/target ids, retries, errors)
 
 Migration file:
 - `prisma/migrations/20260420000000_add_auth_models/migration.sql`

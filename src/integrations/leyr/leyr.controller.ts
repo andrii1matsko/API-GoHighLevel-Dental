@@ -1,6 +1,7 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeyrService } from './leyr.service';
+import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
 
 @ApiTags('Leyr (Opus Test)')
 @Controller('leyr')
@@ -130,5 +131,17 @@ export class LeyrController {
     @Query('emr') emr?: string,
   ) {
     return this.leyrService.getMedicalNotes(careUnitId, patientId, emr);
+  }
+
+  @Post('emrs/:emr/care-units/:careUnitId/appointments')
+  @ApiOperation({ summary: 'Create appointment in Leyr for a care unit' })
+  @ApiParam({ name: 'emr', required: true, example: 'opus' })
+  @ApiParam({ name: 'careUnitId', required: true })
+  createAppointment(
+    @Param('emr') emr: string,
+    @Param('careUnitId') careUnitId: string,
+    @Body() body: CreateLeyrAppointmentDto,
+  ) {
+    return this.leyrService.createAppointment(careUnitId, body, emr);
   }
 }

@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { RefreshGohighlevelTokenDto } from './dto/refresh-token.dto';
@@ -26,6 +27,11 @@ export interface ExternalAppointment {
   patientName?: string;
 }
 
+interface CachedToken {
+  accessToken: string;
+  expiresAtUnix: number;
+}
+
 @Injectable()
 export class GohighlevelService {
   private readonly logger = new Logger(GohighlevelService.name);
@@ -38,9 +44,15 @@ export class GohighlevelService {
   private readonly oauthRedirectUri: string;
   private readonly oauthUserType: 'Company' | 'Location';
   private readonly agencyAccessToken: string;
+  private readonly agencyRefreshToken: string;
+  private readonly agencyRefreshUserType: 'Company' | 'Location';
+  private readonly tokenRefreshLeewaySeconds: number;
   private readonly oauthCompanyId: string;
   private readonly oauthLocationId: string;
   private readonly locationAccessToken: string;
+  private currentAgencyRefreshToken: string;
+  private cachedAgencyToken: CachedToken | null = null;
+  private readonly cachedLocationTokens = new Map<string, CachedToken>();
 
   constructor(
     private readonly httpService: HttpService,
@@ -71,6 +83,19 @@ export class GohighlevelService {
       'GHL_AGENCY_ACCESS_TOKEN',
       '',
     );
+    this.agencyRefreshToken = this.configService.get<string>(
+      'GHL_AGENCY_REFRESH_TOKEN',
+      '',
+    );
+    this.currentAgencyRefreshToken = this.agencyRefreshToken;
+    this.agencyRefreshUserType =
+      this.configService.get<'Company' | 'Location'>(
+        'GHL_AGENCY_REFRESH_USER_TYPE',
+        'Company',
+      ) ?? 'Company';
+    this.tokenRefreshLeewaySeconds =
+      this.configService.get<number>('GHL_TOKEN_REFRESH_LEEWAY_SECONDS', 300) ??
+      300;
     this.oauthCompanyId = this.configService.get<string>('GHL_COMPANY_ID', '');
     this.oauthLocationId = this.configService.get<string>(
       'GHL_LOCATION_ID_OAUTH',
@@ -80,17 +105,44 @@ export class GohighlevelService {
       'GHL_LOCATION_ACCESS_TOKEN',
       '',
     );
+
+    const initialAgencyExp = this.extractJwtExp(this.agencyAccessToken);
+    if (this.agencyAccessToken && initialAgencyExp) {
+      this.cachedAgencyToken = {
+        accessToken: this.agencyAccessToken,
+        expiresAtUnix: initialAgencyExp,
+      };
+    }
+
+    const initialLocationExp = this.extractJwtExp(this.locationAccessToken);
+    if (this.locationAccessToken && initialLocationExp) {
+      const initialLocationId = this.oauthLocationId || this.locationId;
+      if (initialLocationId) {
+        this.cachedLocationTokens.set(initialLocationId, {
+          accessToken: this.locationAccessToken,
+          expiresAtUnix: initialLocationExp,
+        });
+      }
+    }
   }
 
-  private resolveAccessToken(accessToken?: string): string {
-    const token = accessToken || this.locationAccessToken || this.apiKey;
+  private extractJwtExp(token: string): number | null {
     if (!token) {
-      throw new HttpException(
-        'Missing location access token. Set GHL_LOCATION_ACCESS_TOKEN or pass accessToken in request query.',
-        500,
-      );
+      return null;
     }
-    return token;
+    try {
+      const parts = token.split('.');
+      if (parts.length < 2) {
+        return null;
+      }
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(
+        Buffer.from(base64, 'base64').toString('utf8'),
+      ) as { exp?: number };
+      return typeof payload.exp === 'number' ? payload.exp : null;
+    } catch {
+      return null;
+    }
   }
 
   private resolveLocationId(locationId?: string): string {
@@ -102,6 +154,162 @@ export class GohighlevelService {
       );
     }
     return resolvedLocationId;
+  }
+
+  private isTokenStillValid(token: CachedToken): boolean {
+    const now = Math.floor(Date.now() / 1000);
+    return token.expiresAtUnix - now > this.tokenRefreshLeewaySeconds;
+  }
+
+  private async resolveAccessToken(
+    accessTokenOverride?: string,
+    locationId?: string,
+  ): Promise<string> {
+    if (accessTokenOverride) {
+      return accessTokenOverride;
+    }
+    const resolvedLocationId = this.resolveLocationId(locationId);
+    const locationToken = await this.getLocationAccessToken(resolvedLocationId);
+    if (locationToken) {
+      return locationToken;
+    }
+    if (this.apiKey) {
+      return this.apiKey;
+    }
+    throw new HttpException(
+      'Missing GoHighLevel token configuration. Set GHL_AGENCY_REFRESH_TOKEN (recommended) or pass accessToken in request.',
+      500,
+    );
+  }
+
+  private async getAgencyAccessToken(forceRefresh = false): Promise<string> {
+    if (!forceRefresh && this.cachedAgencyToken && this.isTokenStillValid(this.cachedAgencyToken)) {
+      return this.cachedAgencyToken.accessToken;
+    }
+
+    if (!forceRefresh && this.agencyAccessToken) {
+      const exp = this.extractJwtExp(this.agencyAccessToken);
+      if (exp && exp - Math.floor(Date.now() / 1000) > this.tokenRefreshLeewaySeconds) {
+        this.cachedAgencyToken = {
+          accessToken: this.agencyAccessToken,
+          expiresAtUnix: exp,
+        };
+        return this.agencyAccessToken;
+      }
+    }
+
+    if (!this.currentAgencyRefreshToken) {
+      throw new HttpException(
+        'Missing agency refresh token. Set GHL_AGENCY_REFRESH_TOKEN for automatic token management.',
+        500,
+      );
+    }
+
+    const refreshed = await this.refreshAccessToken({
+      refreshToken: this.currentAgencyRefreshToken,
+      userType: this.agencyRefreshUserType,
+    });
+    const accessToken = refreshed?.access_token as string | undefined;
+    const nextRefreshToken = refreshed?.refresh_token as string | undefined;
+    const expiresIn = Number(refreshed?.expires_in ?? 0);
+    if (!accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+      throw new HttpException('Invalid agency token response from GoHighLevel', 502);
+    }
+    if (nextRefreshToken) {
+      if (nextRefreshToken !== this.currentAgencyRefreshToken) {
+        this.logger.warn(
+          'GoHighLevel returned a rotated refresh token. Persist the new value to durable storage for restart safety.',
+        );
+      }
+      this.currentAgencyRefreshToken = nextRefreshToken;
+    }
+
+    this.cachedAgencyToken = {
+      accessToken,
+      expiresAtUnix: Math.floor(Date.now() / 1000) + expiresIn,
+    };
+    return accessToken;
+  }
+
+  private async getLocationAccessToken(locationId: string, forceRefresh = false): Promise<string> {
+    const cachedLocationToken = this.cachedLocationTokens.get(locationId);
+    if (!forceRefresh && cachedLocationToken && this.isTokenStillValid(cachedLocationToken)) {
+      return cachedLocationToken.accessToken;
+    }
+
+    if (!forceRefresh && this.locationAccessToken && locationId === this.oauthLocationId) {
+      const exp = this.extractJwtExp(this.locationAccessToken);
+      if (exp && exp - Math.floor(Date.now() / 1000) > this.tokenRefreshLeewaySeconds) {
+        this.cachedLocationTokens.set(locationId, {
+          accessToken: this.locationAccessToken,
+          expiresAtUnix: exp,
+        });
+        return this.locationAccessToken;
+      }
+    }
+
+    const agencyToken = await this.getAgencyAccessToken(forceRefresh);
+    const tokenResponse = await this.createLocationAccessToken({
+      agencyAccessToken: agencyToken,
+      companyId: this.oauthCompanyId,
+      locationId,
+    });
+
+    const locationAccessToken = tokenResponse?.access_token as string | undefined;
+    const expiresIn = Number(tokenResponse?.expires_in ?? 0);
+    if (!locationAccessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+      throw new HttpException('Invalid location token response from GoHighLevel', 502);
+    }
+
+    this.cachedLocationTokens.set(locationId, {
+      accessToken: locationAccessToken,
+      expiresAtUnix: Math.floor(Date.now() / 1000) + expiresIn,
+    });
+    return locationAccessToken;
+  }
+
+  private async runWithManagedLocationToken<T>(
+    accessTokenOverride: string | undefined,
+    locationId: string | undefined,
+    operation: (token: string) => Promise<T>,
+  ): Promise<T> {
+    const resolvedLocationId = locationId ? this.resolveLocationId(locationId) : undefined;
+    const token = await this.resolveAccessToken(accessTokenOverride, resolvedLocationId);
+    try {
+      return await operation(token);
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      if (
+        !accessTokenOverride &&
+        resolvedLocationId &&
+        axiosError.response?.status === 401
+      ) {
+        const refreshedToken = await this.getLocationAccessToken(
+          resolvedLocationId,
+          true,
+        );
+        return operation(refreshedToken);
+      }
+      throw error;
+    }
+  }
+
+  @Cron('*/5 * * * *')
+  async warmUpManagedTokens(): Promise<void> {
+    if (!this.agencyRefreshToken || !this.oauthLocationId || !this.oauthCompanyId) {
+      return;
+    }
+
+    try {
+      await this.getLocationAccessToken(this.oauthLocationId);
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ?? (error as Error).message;
+      this.logger.warn(`Failed background token warmup: ${String(details)}`);
+    }
   }
 
   async refreshAccessToken(payload: RefreshGohighlevelTokenDto) {
@@ -179,7 +387,8 @@ export class GohighlevelService {
   }
 
   async createLocationAccessToken(payload: CreateLocationTokenDto) {
-    const token = payload.agencyAccessToken || this.agencyAccessToken;
+    const token =
+      payload.agencyAccessToken || (await this.getAgencyAccessToken());
     const companyId = payload.companyId || this.oauthCompanyId;
     const locationId = payload.locationId || this.oauthLocationId;
 
@@ -228,7 +437,6 @@ export class GohighlevelService {
   }
 
   async getCalendars(query: GetCalendarsQueryDto) {
-    const token = this.resolveAccessToken(query.accessToken);
     const locationId = this.resolveLocationId(query.locationId);
     const showDrafted = query.showDrafted ?? true;
 
@@ -241,14 +449,19 @@ export class GohighlevelService {
     }
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params,
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params,
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -265,20 +478,24 @@ export class GohighlevelService {
   }
 
   async getCalendarGroups(query: GohighlevelLocationScopedQueryDto) {
-    const token = this.resolveAccessToken(query.accessToken);
     const locationId = this.resolveLocationId(query.locationId);
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/groups`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params: {
-            locationId,
-          },
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/groups`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params: {
+                locationId,
+              },
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -296,7 +513,6 @@ export class GohighlevelService {
   }
 
   async getCalendarServicesCatalog(query: GetCalendarServicesQueryDto) {
-    const token = this.resolveAccessToken(query.accessToken);
     const locationId = this.resolveLocationId(query.locationId);
 
     const params: Record<string, string | boolean> = {
@@ -310,14 +526,19 @@ export class GohighlevelService {
     }
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/services/catalog`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params,
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/services/catalog`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params,
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -335,20 +556,24 @@ export class GohighlevelService {
   }
 
   async getCalendarServiceLocations(query: GetCalendarServiceLocationsQueryDto) {
-    const token = this.resolveAccessToken(query.accessToken);
     const locationId = this.resolveLocationId(query.locationId);
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/services/locations`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params: {
-            locationId,
-          },
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/services/locations`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params: {
+                locationId,
+              },
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -366,7 +591,6 @@ export class GohighlevelService {
   }
 
   async getCalendarEvents(query: GetCalendarEventsQueryDto) {
-    const token = this.resolveAccessToken(query.accessToken);
     const locationId = this.resolveLocationId(query.locationId);
 
     if (!query.startTime || !query.endTime) {
@@ -389,14 +613,19 @@ export class GohighlevelService {
     if (query.calendarId) params.calendarId = query.calendarId;
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/events`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params,
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/events`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params,
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -416,22 +645,26 @@ export class GohighlevelService {
     eventId: string,
     query: GohighlevelAccessTokenQueryDto,
   ) {
-    const token = this.resolveAccessToken(query.accessToken);
     if (!eventId) {
       throw new HttpException('Missing eventId', 400);
     }
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(
-          `${this.baseUrl}/calendars/events/appointments/${eventId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Version: '2021-04-15',
-            },
-          },
-        ),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(
+              `${this.baseUrl}/calendars/events/appointments/${eventId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -449,7 +682,6 @@ export class GohighlevelService {
   }
 
   async getBlockedSlots(query: GetCalendarEventsQueryDto) {
-    const token = this.resolveAccessToken(query.accessToken);
     const locationId = this.resolveLocationId(query.locationId);
 
     if (!query.startTime || !query.endTime) {
@@ -472,14 +704,19 @@ export class GohighlevelService {
     if (query.calendarId) params.calendarId = query.calendarId;
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/blocked-slots`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params,
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/blocked-slots`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params,
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -497,7 +734,6 @@ export class GohighlevelService {
   }
 
   async createAppointment(payload: CreateAppointmentDto) {
-    const token = this.resolveAccessToken(payload.accessToken);
     const locationId = this.resolveLocationId(payload.locationId);
     const calendarId = payload.calendarId || this.calendarId;
 
@@ -519,17 +755,22 @@ export class GohighlevelService {
     delete (requestPayload as { accessToken?: string }).accessToken;
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.post(
-          `${this.baseUrl}/calendars/events/appointments`,
-          requestPayload,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Version: '2021-04-15',
-            },
-          },
-        ),
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.post(
+              `${this.baseUrl}/calendars/events/appointments`,
+              requestPayload,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -547,7 +788,6 @@ export class GohighlevelService {
   }
 
   async updateAppointment(eventId: string, payload: UpdateAppointmentDto) {
-    const token = this.resolveAccessToken(payload.accessToken);
     if (!eventId) {
       throw new HttpException('Missing eventId', 400);
     }
@@ -558,17 +798,22 @@ export class GohighlevelService {
     delete (requestPayload as { accessToken?: string }).accessToken;
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.put(
-          `${this.baseUrl}/calendars/events/appointments/${eventId}`,
-          requestPayload,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Version: '2021-04-15',
-            },
-          },
-        ),
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.put(
+              `${this.baseUrl}/calendars/events/appointments/${eventId}`,
+              requestPayload,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -586,7 +831,6 @@ export class GohighlevelService {
   }
 
   async deleteEvent(eventId: string, payload: DeleteEventDto) {
-    const token = this.resolveAccessToken(payload.accessToken);
     if (!eventId) {
       throw new HttpException('Missing eventId', 400);
     }
@@ -596,14 +840,19 @@ export class GohighlevelService {
     delete (requestPayload as { accessToken?: string }).accessToken;
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.delete(`${this.baseUrl}/calendars/events/${eventId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          data: requestPayload,
-        }),
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.delete(`${this.baseUrl}/calendars/events/${eventId}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              data: requestPayload,
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -623,19 +872,23 @@ export class GohighlevelService {
     calendarId: string,
     query: GohighlevelAccessTokenQueryDto,
   ) {
-    const token = this.resolveAccessToken(query.accessToken);
     if (!calendarId) {
       throw new HttpException('Missing calendarId', 400);
     }
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/${calendarId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/${calendarId}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+            }),
+          ),
       );
       return response.data;
     } catch (error) {
@@ -655,7 +908,6 @@ export class GohighlevelService {
     calendarId: string,
     query: GetCalendarFreeSlotsQueryDto,
   ) {
-    const token = this.resolveAccessToken(query.accessToken);
     if (!calendarId) {
       throw new HttpException('Missing calendarId', 400);
     }
@@ -683,14 +935,19 @@ export class GohighlevelService {
     if (query.userIds?.length) params.userIds = query.userIds;
 
     try {
-      const response = await firstValueFrom(
-        this.httpService.get(`${this.baseUrl}/calendars/${calendarId}/free-slots`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Version: '2021-04-15',
-          },
-          params,
-        }),
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/${calendarId}/free-slots`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params,
+            }),
+          ),
       );
       return response.data;
     } catch (error) {

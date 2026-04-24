@@ -3,6 +3,7 @@ import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
+import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
 
 type QueryValue = string | number | boolean | undefined;
 type QueryParams = Record<string, QueryValue>;
@@ -68,6 +69,37 @@ export class LeyrService {
         this.httpService.get(`${this.baseUrl}${path}`, {
           headers: this.getHeaders(),
           params,
+        }),
+      );
+
+      return response.data;
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<Record<string, unknown>>;
+      const status = axiosError.response?.status ?? 500;
+      const data = axiosError.response?.data;
+      const message =
+        typeof data?.detail === 'string'
+          ? data.detail
+          : axiosError.message || 'Leyr API request failed';
+
+      throw new HttpException(
+        {
+          message,
+          status,
+          leyr: data ?? null,
+        },
+        status,
+      );
+    }
+  }
+
+  private async post(path: string, payload: unknown): Promise<unknown> {
+    this.assertCredentials();
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(`${this.baseUrl}${path}`, payload, {
+          headers: this.getHeaders(),
         }),
       );
 
@@ -210,5 +242,16 @@ export class LeyrService {
       care_unit_id: careUnitId,
       patient_id: patientId,
     });
+  }
+
+  createAppointment(
+    careUnitId: string,
+    payload: CreateLeyrAppointmentDto,
+    emr?: string,
+  ) {
+    return this.post(
+      `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/appointments`,
+      payload,
+    );
   }
 }
