@@ -2,6 +2,8 @@ import { HttpService } from '@nestjs/axios';
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { RefreshGohighlevelTokenDto } from './dto/refresh-token.dto';
@@ -32,6 +34,10 @@ interface CachedToken {
   expiresAtUnix: number;
 }
 
+interface CreateGhlAppointmentOptions {
+  enqueueSync?: boolean;
+}
+
 @Injectable()
 export class GohighlevelService {
   private readonly logger = new Logger(GohighlevelService.name);
@@ -57,6 +63,7 @@ export class GohighlevelService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly prismaService: PrismaService,
   ) {
     this.baseUrl = this.configService.get<string>(
       'GHL_API_BASE_URL',
@@ -310,6 +317,124 @@ export class GohighlevelService {
           : axiosError.response?.data ?? (error as Error).message;
       this.logger.warn(`Failed background token warmup: ${String(details)}`);
     }
+  }
+
+  private async persistGhlAppointmentAndQueueSync(
+    appointment: Record<string, unknown>,
+    enqueueSync: boolean,
+  ): Promise<void> {
+    const ghlAppointmentId = String(appointment.id ?? '');
+    if (!ghlAppointmentId) {
+      return;
+    }
+
+    const parsedStart = appointment.startTime
+      ? new Date(String(appointment.startTime))
+      : null;
+    const parsedEnd = appointment.endTime
+      ? new Date(String(appointment.endTime))
+      : null;
+
+    const persisted = await this.prismaService.ghlAppointment.upsert({
+      where: { ghlAppointmentId },
+      create: {
+        ghlAppointmentId,
+        calendarId: String(appointment.calendarId ?? ''),
+        locationId: String(appointment.locationId ?? ''),
+        contactId: String(appointment.contactId ?? ''),
+        assignedUserId: appointment.assignedUserId
+          ? String(appointment.assignedUserId)
+          : null,
+        startAt:
+          parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : null,
+        endAt: parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
+        title: appointment.title ? String(appointment.title) : null,
+        status: appointment.appointmentStatus
+          ? String(appointment.appointmentStatus)
+          : null,
+        meetingLocationType: appointment.meetingLocationType
+          ? String(appointment.meetingLocationType)
+          : null,
+        address: appointment.address ? String(appointment.address) : null,
+        isRecurring:
+          typeof appointment.isRecurring === 'boolean'
+            ? appointment.isRecurring
+            : null,
+        rrule: appointment.rrule ? String(appointment.rrule) : null,
+        rawPayload: appointment as Prisma.InputJsonValue,
+      },
+      update: {
+        calendarId: String(appointment.calendarId ?? ''),
+        locationId: String(appointment.locationId ?? ''),
+        contactId: String(appointment.contactId ?? ''),
+        assignedUserId: appointment.assignedUserId
+          ? String(appointment.assignedUserId)
+          : null,
+        startAt:
+          parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : null,
+        endAt: parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
+        title: appointment.title ? String(appointment.title) : null,
+        status: appointment.appointmentStatus
+          ? String(appointment.appointmentStatus)
+          : null,
+        meetingLocationType: appointment.meetingLocationType
+          ? String(appointment.meetingLocationType)
+          : null,
+        address: appointment.address ? String(appointment.address) : null,
+        isRecurring:
+          typeof appointment.isRecurring === 'boolean'
+            ? appointment.isRecurring
+            : null,
+        rrule: appointment.rrule ? String(appointment.rrule) : null,
+        rawPayload: appointment as Prisma.InputJsonValue,
+      },
+    });
+
+    if (!enqueueSync) {
+      return;
+    }
+
+    const idempotencyKey = `GHL_TO_LEYR:${ghlAppointmentId}`;
+    await this.prismaService.appointmentSync.upsert({
+      where: { idempotencyKey },
+      create: {
+        idempotencyKey,
+        direction: 'GHL_TO_LEYR',
+        status: 'pending',
+        sourceSystem: 'GHL',
+        sourceExternalId: ghlAppointmentId,
+        targetSystem: 'LEYR',
+        ghlAppointmentId: persisted.id,
+      },
+      update: {
+        status: 'pending',
+        errorMessage: null,
+      },
+    });
+  }
+
+  async ingestAppointmentCreateWebhook(
+    payload: {
+      locationId: string;
+      appointment: { id: string } & Record<string, unknown>;
+    },
+    options: CreateGhlAppointmentOptions = {},
+  ) {
+    const appointment: Record<string, unknown> = {
+      ...payload.appointment,
+      locationId: payload.locationId || payload.appointment.locationId,
+    };
+
+    await this.persistGhlAppointmentAndQueueSync(
+      appointment,
+      options.enqueueSync ?? true,
+    );
+
+    return {
+      accepted: true,
+      appointmentId: payload.appointment.id,
+      queuedSync: options.enqueueSync ?? true,
+    };
   }
 
   async refreshAccessToken(payload: RefreshGohighlevelTokenDto) {
@@ -733,7 +858,10 @@ export class GohighlevelService {
     }
   }
 
-  async createAppointment(payload: CreateAppointmentDto) {
+  async createAppointment(
+    payload: CreateAppointmentDto,
+    options: CreateGhlAppointmentOptions = {},
+  ) {
     const locationId = this.resolveLocationId(payload.locationId);
     const calendarId = payload.calendarId || this.calendarId;
 
@@ -771,6 +899,10 @@ export class GohighlevelService {
               },
             ),
           ),
+      );
+      await this.persistGhlAppointmentAndQueueSync(
+        response.data as Record<string, unknown>,
+        options.enqueueSync ?? true,
       );
       return response.data;
     } catch (error) {

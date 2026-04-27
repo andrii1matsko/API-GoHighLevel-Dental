@@ -106,6 +106,24 @@ Swagger docs: `http://localhost:3000/api/docs`
 
 - `POST /api/sync/calendar` (manual Layer -> GoHighLevel sync)
 
+Current appointment sync behavior:
+
+- creating an appointment via `POST /api/gohighlevel/calendars/events/appointments` stores `GhlAppointment` and queues `GHL_TO_LEYR` sync
+- creating an appointment via `POST /api/leyr/emrs/:emr/care-units/:careUnitId/appointments` stores `LeyrAppointment` and queues `LEYR_TO_GHL` sync
+- queued sync rows are processed by cron (`every 10 minutes`) or manually via `POST /api/sync/calendar`
+- GoHighLevel webhook for create events:
+  - `POST /api/gohighlevel/webhooks/appointments/create`
+  - accepts `AppointmentCreate` payload from GHL Marketplace webhooks
+
+Sync default env values required:
+
+- `SYNC_LEYR_DEFAULT_CARE_UNIT_ID`
+- `SYNC_LEYR_DEFAULT_HEALTHCARE_SERVICE_ID`
+- `SYNC_LEYR_DEFAULT_RESOURCE_ID`
+- `SYNC_GHL_DEFAULT_CONTACT_ID`
+- `SYNC_GHL_DEFAULT_LOCATION_ID` (optional if `GHL_LOCATION_ID_OAUTH` already set)
+- `SYNC_GHL_DEFAULT_CALENDAR_ID` (optional if `GHL_CALENDAR_ID` already set)
+
 ### Leyr appointment creation
 
 - `POST /api/leyr/emrs/:emr/care-units/:careUnitId/appointments`

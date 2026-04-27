@@ -36,6 +36,7 @@ import {
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
 } from './dto/calendars.dto';
+import { GhlAppointmentCreateWebhookDto } from './dto/webhook-appointment-create.dto';
 
 @ApiTags('GoHighLevel')
 @Controller('gohighlevel')
@@ -286,6 +287,33 @@ export class GohighlevelController {
   })
   createAppointment(@Body() body: CreateAppointmentDto) {
     return this.gohighlevelService.createAppointment(body);
+  }
+
+  @Post('webhooks/appointments/create')
+  @HttpCode(202)
+  @ApiOperation({
+    summary: 'GoHighLevel webhook receiver for AppointmentCreate events',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        accepted: true,
+        appointmentId: '0TkCdp9PfvLeWKYRRvIz',
+        queuedSync: true,
+      },
+    },
+  })
+  async appointmentCreateWebhook(@Body() body: GhlAppointmentCreateWebhookDto) {
+    return this.gohighlevelService.ingestAppointmentCreateWebhook(
+      {
+        locationId: body.locationId,
+        appointment: {
+          ...body.appointment,
+          id: body.appointment.id,
+        },
+      },
+      { enqueueSync: true },
+    );
   }
 
   @Put('calendars/events/appointments/:eventId')

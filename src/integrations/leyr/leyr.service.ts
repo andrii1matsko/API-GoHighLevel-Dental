@@ -1,12 +1,17 @@
 import { HttpService } from '@nestjs/axios';
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
+import { PrismaService } from '../../prisma/prisma.service';
 
 type QueryValue = string | number | boolean | undefined;
 type QueryParams = Record<string, QueryValue>;
+interface CreateLeyrAppointmentOptions {
+  enqueueSync?: boolean;
+}
 
 @Injectable()
 export class LeyrService {
@@ -20,6 +25,7 @@ export class LeyrService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly prismaService: PrismaService,
   ) {
     this.baseUrl = this.configService.get<string>(
       'LEYR_API_BASE_URL',
@@ -248,10 +254,104 @@ export class LeyrService {
     careUnitId: string,
     payload: CreateLeyrAppointmentDto,
     emr?: string,
+    options: CreateLeyrAppointmentOptions = {},
   ) {
     return this.post(
       `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/appointments`,
       payload,
-    );
+    ).then(async (response) => {
+      const appointments = Array.isArray(response)
+        ? (response as Array<Record<string, unknown>>)
+        : [];
+      const first = appointments[0];
+      if (!first) {
+        return response;
+      }
+
+      const leyrAppointmentId = String(first.id ?? '');
+      if (leyrAppointmentId) {
+        const parsedStart = first.start ? new Date(String(first.start)) : null;
+        const parsedEnd = first.end ? new Date(String(first.end)) : null;
+
+        const persisted = await this.prismaService.leyrAppointment.upsert({
+          where: { leyrAppointmentId },
+          create: {
+            leyrAppointmentId,
+            emr: this.resolveEmr(emr),
+            emrId: first.emr_id ? String(first.emr_id) : null,
+            careUnitId: String(first.care_unit_id ?? careUnitId),
+            patientId: payload.patient_id,
+            resourceId: payload.resource_id,
+            healthcareServiceId: payload.healthcare_service_id,
+            startAt:
+              parsedStart && !Number.isNaN(parsedStart.getTime())
+                ? parsedStart
+                : new Date(payload.start),
+            endAt:
+              parsedEnd && !Number.isNaN(parsedEnd.getTime())
+                ? parsedEnd
+                : new Date(payload.end),
+            status: first.status ? String(first.status) : null,
+            description: first.description ? String(first.description) : null,
+            comment: first.comment ? String(first.comment) : payload.comment ?? null,
+            participants: first.participants
+              ? (first.participants as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            healthcareServices: first.healthcare_services
+              ? (first.healthcare_services as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            rawPayload: first as Prisma.InputJsonValue,
+          },
+          update: {
+            emr: this.resolveEmr(emr),
+            emrId: first.emr_id ? String(first.emr_id) : null,
+            careUnitId: String(first.care_unit_id ?? careUnitId),
+            patientId: payload.patient_id,
+            resourceId: payload.resource_id,
+            healthcareServiceId: payload.healthcare_service_id,
+            startAt:
+              parsedStart && !Number.isNaN(parsedStart.getTime())
+                ? parsedStart
+                : new Date(payload.start),
+            endAt:
+              parsedEnd && !Number.isNaN(parsedEnd.getTime())
+                ? parsedEnd
+                : new Date(payload.end),
+            status: first.status ? String(first.status) : null,
+            description: first.description ? String(first.description) : null,
+            comment: first.comment ? String(first.comment) : payload.comment ?? null,
+            participants: first.participants
+              ? (first.participants as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            healthcareServices: first.healthcare_services
+              ? (first.healthcare_services as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+            rawPayload: first as Prisma.InputJsonValue,
+          },
+        });
+
+        if (options.enqueueSync ?? true) {
+          const idempotencyKey = `LEYR_TO_GHL:${leyrAppointmentId}`;
+          await this.prismaService.appointmentSync.upsert({
+            where: { idempotencyKey },
+            create: {
+              idempotencyKey,
+              direction: 'LEYR_TO_GHL',
+              status: 'pending',
+              sourceSystem: 'LEYR',
+              sourceExternalId: leyrAppointmentId,
+              targetSystem: 'GHL',
+              leyrAppointmentId: persisted.id,
+            },
+            update: {
+              status: 'pending',
+              errorMessage: null,
+            },
+          });
+        }
+      }
+
+      return response;
+    });
   }
 }
