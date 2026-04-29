@@ -124,6 +124,19 @@ export class CalendarSyncService {
       return;
     }
 
+    const mutationType =
+      typeof row.sourceSystem === 'string' && row.sourceSystem.includes(':')
+        ? row.sourceSystem.split(':')[1]
+        : 'AppointmentCreate';
+
+    if (mutationType === 'AppointmentUpdate' || mutationType === 'AppointmentDelete') {
+      await this.markRowFailed(
+        rowId,
+        `Leyr sync for ${mutationType} not implemented yet (will avoid creating duplicates).`,
+      );
+      return;
+    }
+
     if (
       !this.defaultLeyrCareUnitId ||
       !this.defaultLeyrHealthcareServiceId ||

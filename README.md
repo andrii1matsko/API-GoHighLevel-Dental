@@ -116,6 +116,9 @@ Current appointment sync behavior:
 - GoHighLevel webhook for create events:
   - `POST /api/gohighlevel/webhooks/appointments/create`
   - accepts `AppointmentCreate` payload from GHL Marketplace webhooks
+- GoHighLevel webhooks for update/delete events (queued, not propagated to Leyr yet in MVP):
+  - `POST /api/gohighlevel/webhooks/appointments/update`
+  - `POST /api/gohighlevel/webhooks/appointments/delete`
 
 Sync default env values required:
 

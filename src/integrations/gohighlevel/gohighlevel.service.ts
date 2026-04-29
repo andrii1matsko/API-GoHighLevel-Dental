@@ -514,6 +514,7 @@ export class GohighlevelService {
   private async persistGhlAppointmentAndQueueSync(
     appointment: Record<string, unknown>,
     enqueueSync: boolean,
+    sourceAction: string,
   ): Promise<void> {
     const ghlAppointmentId = String(appointment.id ?? '');
     if (!ghlAppointmentId) {
@@ -586,14 +587,14 @@ export class GohighlevelService {
       return;
     }
 
-    const idempotencyKey = `GHL_TO_LEYR:${ghlAppointmentId}`;
+    const idempotencyKey = `GHL_TO_LEYR:${sourceAction}:${ghlAppointmentId}`;
     await this.prismaService.appointmentSync.upsert({
       where: { idempotencyKey },
       create: {
         idempotencyKey,
         direction: 'GHL_TO_LEYR',
         status: 'pending',
-        sourceSystem: 'GHL',
+        sourceSystem: `GHL:${sourceAction}`,
         sourceExternalId: ghlAppointmentId,
         targetSystem: 'LEYR',
         ghlAppointmentId: persisted.id,
@@ -620,11 +621,38 @@ export class GohighlevelService {
     await this.persistGhlAppointmentAndQueueSync(
       appointment,
       options.enqueueSync ?? true,
+      'AppointmentCreate',
     );
 
     return {
       accepted: true,
       appointmentId: payload.appointment.id,
+      queuedSync: options.enqueueSync ?? true,
+    };
+  }
+
+  async ingestAppointmentMutationWebhook(
+    payload: {
+      locationId: string;
+      appointment: Record<string, unknown>;
+    },
+    mutationType: 'AppointmentUpdate' | 'AppointmentDelete',
+    options: CreateGhlAppointmentOptions = {},
+  ) {
+    const appointment: Record<string, unknown> = {
+      ...payload.appointment,
+      locationId: payload.locationId || payload.appointment.locationId,
+    };
+
+    await this.persistGhlAppointmentAndQueueSync(
+      appointment,
+      options.enqueueSync ?? true,
+      mutationType,
+    );
+
+    return {
+      accepted: true,
+      appointmentId: String(payload.appointment?.id ?? ''),
       queuedSync: options.enqueueSync ?? true,
     };
   }
@@ -1131,6 +1159,7 @@ export class GohighlevelService {
       await this.persistGhlAppointmentAndQueueSync(
         response.data as Record<string, unknown>,
         options.enqueueSync ?? true,
+        'AppointmentCreate',
       );
       return response.data;
     } catch (error) {

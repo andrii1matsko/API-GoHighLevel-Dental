@@ -38,6 +38,7 @@ import {
   UpdateAppointmentDto,
 } from './dto/calendars.dto';
 import { GhlAppointmentCreateWebhookDto } from './dto/webhook-appointment-create.dto';
+import { GhlAppointmentMutationWebhookDto } from './dto/webhook-appointment-mutation.dto';
 
 @ApiTags('GoHighLevel')
 @Controller('gohighlevel')
@@ -330,6 +331,50 @@ export class GohighlevelController {
           id: body.appointment.id,
         },
       },
+      { enqueueSync: true },
+    );
+  }
+
+  @Post('webhooks/appointments/delete')
+  @HttpCode(202)
+  @ApiOperation({
+    summary: 'GoHighLevel webhook receiver for AppointmentDelete events',
+  })
+  appointmentDeleteWebhook(
+    @Body() body: GhlAppointmentMutationWebhookDto,
+  ) {
+    if (body.type !== 'AppointmentDelete') {
+      return { accepted: false, reason: 'Wrong webhook type for endpoint' };
+    }
+
+    return this.gohighlevelService.ingestAppointmentMutationWebhook(
+      {
+        locationId: body.locationId,
+        appointment: body.appointment as unknown as Record<string, unknown>,
+      },
+      'AppointmentDelete',
+      { enqueueSync: true },
+    );
+  }
+
+  @Post('webhooks/appointments/update')
+  @HttpCode(202)
+  @ApiOperation({
+    summary: 'GoHighLevel webhook receiver for AppointmentUpdate events',
+  })
+  appointmentUpdateWebhook(
+    @Body() body: GhlAppointmentMutationWebhookDto,
+  ) {
+    if (body.type !== 'AppointmentUpdate') {
+      return { accepted: false, reason: 'Wrong webhook type for endpoint' };
+    }
+
+    return this.gohighlevelService.ingestAppointmentMutationWebhook(
+      {
+        locationId: body.locationId,
+        appointment: body.appointment as unknown as Record<string, unknown>,
+      },
+      'AppointmentUpdate',
       { enqueueSync: true },
     );
   }
