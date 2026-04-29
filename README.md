@@ -48,14 +48,16 @@ Important variables to set in `.env`:
 
 The GoHighLevel integration now supports automatic token lifecycle management:
 
-- set `GHL_AGENCY_REFRESH_TOKEN` once
+- persist tokens once via `POST /api/gohighlevel/oauth/token/store` (recommended)
 - set `GHL_COMPANY_ID` and `GHL_LOCATION_ID_OAUTH`
+- optional bootstrap only: `GHL_AGENCY_REFRESH_TOKEN`
 - optional: set `GHL_TOKEN_REFRESH_LEEWAY_SECONDS` (default `300`)
 
 With these values, calendar/service/event endpoints automatically:
 
 - refresh agency access token from refresh token
 - generate location-scoped token
+- persist rotated tokens in DB (`GhlOAuthToken`)
 - cache tokens and refresh before expiry
 - retry once on `401` with a forced refresh
 
@@ -202,6 +204,8 @@ curl -X POST http://localhost:3000/api/sync/calendar \
   - normalized GoHighLevel appointment store (`ghlAppointmentId`, status, recurrence fields)
 - `AppointmentSync`:
   - cross-system sync tracking (`direction`, `status`, source/target ids, retries, errors)
+- `GhlOAuthToken`:
+  - durable OAuth token store used for automatic access/refresh rotation
 
 Migration file:
 - `prisma/migrations/20260420000000_add_auth_models/migration.sql`

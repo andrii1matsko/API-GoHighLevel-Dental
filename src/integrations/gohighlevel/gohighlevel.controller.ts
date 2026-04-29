@@ -20,6 +20,7 @@ import {
 import { GohighlevelService } from './gohighlevel.service';
 import { RefreshGohighlevelTokenDto } from './dto/refresh-token.dto';
 import { GohighlevelTokenResponseDto } from './dto/token-response.dto';
+import { StoreGohighlevelTokenDto } from './dto/store-token.dto';
 import {
   CreateLocationTokenDto,
   GohighlevelLocationTokenResponseDto,
@@ -56,6 +57,23 @@ export class GohighlevelController {
   })
   refreshToken(@Body() body: RefreshGohighlevelTokenDto) {
     return this.gohighlevelService.refreshAccessToken(body);
+  }
+
+  @Post('oauth/token/store')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Persist GoHighLevel OAuth tokens for automatic rotation',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        stored: true,
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Invalid token payload' })
+  storeToken(@Body() body: StoreGohighlevelTokenDto) {
+    return this.gohighlevelService.storeOAuthToken(body);
   }
 
   @Post('oauth/location-token')

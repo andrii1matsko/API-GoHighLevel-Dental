@@ -3,11 +3,12 @@ import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { GhlOAuthToken, Prisma } from '@prisma/client';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { RefreshGohighlevelTokenDto } from './dto/refresh-token.dto';
 import { CreateLocationTokenDto } from './dto/location-token.dto';
+import { StoreGohighlevelTokenDto } from './dto/store-token.dto';
 import {
   CreateAppointmentDto,
   DeleteEventDto,
@@ -38,6 +39,8 @@ interface CreateGhlAppointmentOptions {
   enqueueSync?: boolean;
 }
 
+const AGENCY_LOCATION_SCOPE = '__agency__';
+
 @Injectable()
 export class GohighlevelService {
   private readonly logger = new Logger(GohighlevelService.name);
@@ -50,13 +53,12 @@ export class GohighlevelService {
   private readonly oauthRedirectUri: string;
   private readonly oauthUserType: 'Company' | 'Location';
   private readonly agencyAccessToken: string;
-  private readonly agencyRefreshToken: string;
   private readonly agencyRefreshUserType: 'Company' | 'Location';
   private readonly tokenRefreshLeewaySeconds: number;
   private readonly oauthCompanyId: string;
   private readonly oauthLocationId: string;
   private readonly locationAccessToken: string;
-  private currentAgencyRefreshToken: string;
+  private readonly bootstrapAgencyRefreshToken: string;
   private cachedAgencyToken: CachedToken | null = null;
   private readonly cachedLocationTokens = new Map<string, CachedToken>();
 
@@ -90,11 +92,10 @@ export class GohighlevelService {
       'GHL_AGENCY_ACCESS_TOKEN',
       '',
     );
-    this.agencyRefreshToken = this.configService.get<string>(
+    this.bootstrapAgencyRefreshToken = this.configService.get<string>(
       'GHL_AGENCY_REFRESH_TOKEN',
       '',
     );
-    this.currentAgencyRefreshToken = this.agencyRefreshToken;
     this.agencyRefreshUserType =
       this.configService.get<'Company' | 'Location'>(
         'GHL_AGENCY_REFRESH_USER_TYPE',
@@ -168,6 +169,118 @@ export class GohighlevelService {
     return token.expiresAtUnix - now > this.tokenRefreshLeewaySeconds;
   }
 
+  private createCachedToken(
+    accessToken: string,
+    expiresInSeconds: number,
+  ): CachedToken {
+    return {
+      accessToken,
+      expiresAtUnix: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    };
+  }
+
+  private toCachedToken(record: GhlOAuthToken): CachedToken | null {
+    if (!record.accessToken || !record.accessTokenExpiresAt) {
+      return null;
+    }
+    return {
+      accessToken: record.accessToken,
+      expiresAtUnix: Math.floor(record.accessTokenExpiresAt.getTime() / 1000),
+    };
+  }
+
+  private async getStoredToken(
+    companyId: string,
+    locationId: string,
+    userType: 'Company' | 'Location',
+  ): Promise<GhlOAuthToken | null> {
+    return this.prismaService.ghlOAuthToken.findUnique({
+      where: {
+        companyId_locationId_userType: {
+          companyId,
+          locationId,
+          userType,
+        },
+      },
+    });
+  }
+
+  private async persistTokenRecord(params: {
+    companyId: string;
+    locationId: string;
+    userType: 'Company' | 'Location';
+    accessToken?: string;
+    refreshToken: string;
+    expiresIn?: number;
+    tokenType?: string;
+    scope?: string;
+    refreshTokenId?: string;
+    userId?: string;
+    isBulkInstallation?: boolean;
+  }): Promise<void> {
+    const accessTokenExpiresAt =
+      params.accessToken && params.expiresIn && Number.isFinite(params.expiresIn)
+        ? new Date(Date.now() + params.expiresIn * 1000)
+        : undefined;
+
+    await this.prismaService.ghlOAuthToken.upsert({
+      where: {
+        companyId_locationId_userType: {
+          companyId: params.companyId,
+          locationId: params.locationId,
+          userType: params.userType,
+        },
+      },
+      create: {
+        companyId: params.companyId,
+        locationId: params.locationId,
+        userType: params.userType,
+        accessToken: params.accessToken,
+        accessTokenExpiresAt,
+        refreshToken: params.refreshToken,
+        tokenType: params.tokenType,
+        scope: params.scope,
+        refreshTokenId: params.refreshTokenId,
+        userId: params.userId,
+        isBulkInstallation: params.isBulkInstallation,
+      },
+      update: {
+        accessToken: params.accessToken,
+        accessTokenExpiresAt,
+        refreshToken: params.refreshToken,
+        tokenType: params.tokenType,
+        scope: params.scope,
+        refreshTokenId: params.refreshTokenId,
+        userId: params.userId,
+        isBulkInstallation: params.isBulkInstallation,
+      },
+    });
+  }
+
+  private async bootstrapAgencyTokenFromEnvIfNeeded(): Promise<void> {
+    if (!this.oauthCompanyId || !this.bootstrapAgencyRefreshToken) {
+      return;
+    }
+    const existing = await this.getStoredToken(
+      this.oauthCompanyId,
+      AGENCY_LOCATION_SCOPE,
+      this.agencyRefreshUserType,
+    );
+    if (existing) {
+      return;
+    }
+
+    const accessTokenExp = this.extractJwtExp(this.agencyAccessToken);
+    await this.persistTokenRecord({
+      companyId: this.oauthCompanyId,
+      locationId: AGENCY_LOCATION_SCOPE,
+      userType: this.agencyRefreshUserType,
+      accessToken: this.agencyAccessToken || undefined,
+      refreshToken: this.bootstrapAgencyRefreshToken,
+      expiresIn: accessTokenExp ? accessTokenExp - Math.floor(Date.now() / 1000) : undefined,
+    });
+  }
+
   private async resolveAccessToken(
     accessTokenOverride?: string,
     locationId?: string,
@@ -190,8 +303,26 @@ export class GohighlevelService {
   }
 
   private async getAgencyAccessToken(forceRefresh = false): Promise<string> {
-    if (!forceRefresh && this.cachedAgencyToken && this.isTokenStillValid(this.cachedAgencyToken)) {
+    if (
+      !forceRefresh &&
+      this.cachedAgencyToken &&
+      this.isTokenStillValid(this.cachedAgencyToken)
+    ) {
       return this.cachedAgencyToken.accessToken;
+    }
+
+    await this.bootstrapAgencyTokenFromEnvIfNeeded();
+    const dbToken = this.oauthCompanyId
+      ? await this.getStoredToken(
+          this.oauthCompanyId,
+          AGENCY_LOCATION_SCOPE,
+          this.agencyRefreshUserType,
+        )
+      : null;
+    const dbCachedToken = dbToken ? this.toCachedToken(dbToken) : null;
+    if (!forceRefresh && dbCachedToken && this.isTokenStillValid(dbCachedToken)) {
+      this.cachedAgencyToken = dbCachedToken;
+      return dbCachedToken.accessToken;
     }
 
     if (!forceRefresh && this.agencyAccessToken) {
@@ -205,15 +336,16 @@ export class GohighlevelService {
       }
     }
 
-    if (!this.currentAgencyRefreshToken) {
+    const refreshToken = dbToken?.refreshToken || this.bootstrapAgencyRefreshToken;
+    if (!refreshToken) {
       throw new HttpException(
-        'Missing agency refresh token. Set GHL_AGENCY_REFRESH_TOKEN for automatic token management.',
+        'Missing agency refresh token. Persist one token record first or set GHL_AGENCY_REFRESH_TOKEN once for bootstrap.',
         500,
       );
     }
 
     const refreshed = await this.refreshAccessToken({
-      refreshToken: this.currentAgencyRefreshToken,
+      refreshToken,
       userType: this.agencyRefreshUserType,
     });
     const accessToken = refreshed?.access_token as string | undefined;
@@ -222,19 +354,34 @@ export class GohighlevelService {
     if (!accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
       throw new HttpException('Invalid agency token response from GoHighLevel', 502);
     }
-    if (nextRefreshToken) {
-      if (nextRefreshToken !== this.currentAgencyRefreshToken) {
-        this.logger.warn(
-          'GoHighLevel returned a rotated refresh token. Persist the new value to durable storage for restart safety.',
-        );
-      }
-      this.currentAgencyRefreshToken = nextRefreshToken;
+    if (!this.oauthCompanyId) {
+      throw new HttpException(
+        'Missing companyId. Set GHL_COMPANY_ID so agency token rotation can be persisted.',
+        500,
+      );
     }
 
-    this.cachedAgencyToken = {
+    await this.persistTokenRecord({
+      companyId: this.oauthCompanyId,
+      locationId: AGENCY_LOCATION_SCOPE,
+      userType: this.agencyRefreshUserType,
       accessToken,
-      expiresAtUnix: Math.floor(Date.now() / 1000) + expiresIn,
-    };
+      refreshToken: nextRefreshToken || refreshToken,
+      expiresIn,
+      tokenType: typeof refreshed?.token_type === 'string' ? refreshed.token_type : undefined,
+      scope: typeof refreshed?.scope === 'string' ? refreshed.scope : undefined,
+      refreshTokenId:
+        typeof refreshed?.refreshTokenId === 'string'
+          ? refreshed.refreshTokenId
+          : undefined,
+      userId: typeof refreshed?.userId === 'string' ? refreshed.userId : undefined,
+      isBulkInstallation:
+        typeof refreshed?.isBulkInstallation === 'boolean'
+          ? refreshed.isBulkInstallation
+          : undefined,
+    });
+
+    this.cachedAgencyToken = this.createCachedToken(accessToken, expiresIn);
     return accessToken;
   }
 
@@ -255,6 +402,21 @@ export class GohighlevelService {
       }
     }
 
+    const locationDbToken = this.oauthCompanyId
+      ? await this.getStoredToken(this.oauthCompanyId, locationId, 'Location')
+      : null;
+    const locationDbCachedToken = locationDbToken
+      ? this.toCachedToken(locationDbToken)
+      : null;
+    if (
+      !forceRefresh &&
+      locationDbCachedToken &&
+      this.isTokenStillValid(locationDbCachedToken)
+    ) {
+      this.cachedLocationTokens.set(locationId, locationDbCachedToken);
+      return locationDbCachedToken.accessToken;
+    }
+
     const agencyToken = await this.getAgencyAccessToken(forceRefresh);
     const tokenResponse = await this.createLocationAccessToken({
       agencyAccessToken: agencyToken,
@@ -268,10 +430,40 @@ export class GohighlevelService {
       throw new HttpException('Invalid location token response from GoHighLevel', 502);
     }
 
-    this.cachedLocationTokens.set(locationId, {
-      accessToken: locationAccessToken,
-      expiresAtUnix: Math.floor(Date.now() / 1000) + expiresIn,
-    });
+    const companyId =
+      (tokenResponse?.companyId as string | undefined) || this.oauthCompanyId;
+    const responseLocationId =
+      (tokenResponse?.locationId as string | undefined) || locationId;
+    const refreshedLocationToken = tokenResponse?.refresh_token as string | undefined;
+    if (companyId && responseLocationId && refreshedLocationToken) {
+      await this.persistTokenRecord({
+        companyId,
+        locationId: responseLocationId,
+        userType: 'Location',
+        accessToken: locationAccessToken,
+        refreshToken: refreshedLocationToken,
+        expiresIn,
+        tokenType:
+          typeof tokenResponse?.token_type === 'string'
+            ? tokenResponse.token_type
+            : undefined,
+        scope: typeof tokenResponse?.scope === 'string' ? tokenResponse.scope : undefined,
+        refreshTokenId:
+          typeof tokenResponse?.refreshTokenId === 'string'
+            ? tokenResponse.refreshTokenId
+            : undefined,
+        userId: typeof tokenResponse?.userId === 'string' ? tokenResponse.userId : undefined,
+        isBulkInstallation:
+          typeof tokenResponse?.isBulkInstallation === 'boolean'
+            ? tokenResponse.isBulkInstallation
+            : undefined,
+      });
+    }
+
+    this.cachedLocationTokens.set(
+      locationId,
+      this.createCachedToken(locationAccessToken, expiresIn),
+    );
     return locationAccessToken;
   }
 
@@ -303,7 +495,7 @@ export class GohighlevelService {
 
   @Cron('*/5 * * * *')
   async warmUpManagedTokens(): Promise<void> {
-    if (!this.agencyRefreshToken || !this.oauthLocationId || !this.oauthCompanyId) {
+    if (!this.oauthLocationId || !this.oauthCompanyId) {
       return;
     }
 
@@ -477,6 +669,42 @@ export class GohighlevelService {
       this.logger.error('GoHighLevel refresh token exchange failed', details);
       throw new HttpException(details, status);
     }
+  }
+
+  async storeOAuthToken(payload: StoreGohighlevelTokenDto) {
+    const locationScope =
+      payload.userType === 'Location'
+        ? this.resolveLocationId(payload.locationId)
+        : AGENCY_LOCATION_SCOPE;
+
+    await this.persistTokenRecord({
+      companyId: payload.companyId,
+      locationId: locationScope,
+      userType: payload.userType,
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      expiresIn: payload.expiresIn,
+      tokenType: payload.tokenType,
+      scope: payload.scope,
+      refreshTokenId: payload.refreshTokenId,
+      userId: payload.userId,
+      isBulkInstallation: payload.isBulkInstallation,
+    });
+
+    if (payload.userType === this.agencyRefreshUserType && locationScope === AGENCY_LOCATION_SCOPE) {
+      this.cachedAgencyToken = this.createCachedToken(
+        payload.accessToken,
+        payload.expiresIn,
+      );
+    }
+    if (payload.userType === 'Location') {
+      this.cachedLocationTokens.set(
+        locationScope,
+        this.createCachedToken(payload.accessToken, payload.expiresIn),
+      );
+    }
+
+    return { stored: true };
   }
 
   async upsertAppointment(appointment: ExternalAppointment): Promise<void> {

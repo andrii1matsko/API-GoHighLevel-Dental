@@ -159,3 +159,24 @@ model AppointmentSync {
   @@index([targetSystem, targetExternalId])
 }
 
+model GhlOAuthToken {
+  id                   String   @id @default(cuid())
+  companyId            String
+  locationId           String
+  userType             String
+  accessToken          String?
+  accessTokenExpiresAt DateTime?
+  refreshToken         String
+  tokenType            String?
+  scope                String?
+  refreshTokenId       String?
+  userId               String?
+  isBulkInstallation   Boolean?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([companyId, locationId, userType])
+  @@index([companyId, userType])
+  @@index([locationId, userType])
+}
+
