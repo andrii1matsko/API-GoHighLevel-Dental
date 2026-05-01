@@ -180,3 +180,24 @@ model GhlOAuthToken {
   @@index([locationId, userType])
 }
 
+model AuditLog {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  actorUserId   String?
+  actorEmail    String?
+  httpMethod    String
+  path          String
+  resourceType  String?
+  resourceId    String?
+  ip            String?
+  userAgent     String?
+  requestId     String?
+  statusCode    Int?
+  durationMs    Int?
+  metadata      Json?
+
+  @@index([createdAt])
+  @@index([actorUserId])
+  @@index([httpMethod, path])
+}
+

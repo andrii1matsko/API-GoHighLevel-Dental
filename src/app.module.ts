@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HealthModule } from './health/health.module';
@@ -8,6 +8,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CalendarSyncModule } from './sync/calendar-sync.module';
 import { AuthModule } from './auth/auth.module';
 import { MasterDataModule } from './master-data/master-data.module';
+import { CommonModule } from './common/common.module';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 
 @Module({
   imports: [
@@ -16,6 +18,7 @@ import { MasterDataModule } from './master-data/master-data.module';
       envFilePath: ['.env.local', '.env'],
     }),
     ScheduleModule.forRoot(),
+    CommonModule,
     HealthModule,
     LeyrModule,
     GohighlevelModule,
@@ -25,4 +28,11 @@ import { MasterDataModule } from './master-data/master-data.module';
     MasterDataModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(CorrelationIdMiddleware).forRoutes({
+      path: '*',
+      method: RequestMethod.ALL,
+    });
+  }
+}
