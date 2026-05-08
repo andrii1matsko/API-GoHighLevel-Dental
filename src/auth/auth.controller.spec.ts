@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/unbound-method */
-import { jest, type Mock } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest} from '@jest/globals';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
@@ -29,17 +29,19 @@ describe('AuthController', () => {
   it('delegates login to auth service', async () => {
     const dto = { email: 'a@mail.com', password: '12345678' };
     (authService.login as jest.Mock).mockResolvedValue({ accessToken: 'token' });
+    const fakeReq = { headers: { 'user-agent': 'TestAgent' } } as any;
 
-    await controller.login(dto);
+    await controller.login(dto, '127.0.0.1', fakeReq);
 
-    expect(authService.login).toHaveBeenCalledWith(dto);
+    expect(authService.login).toHaveBeenCalledWith(dto, '127.0.0.1', 'TestAgent');
   });
 
   it('delegates logout to auth service', async () => {
     (authService.logout as jest.Mock).mockResolvedValue({ message: 'ok' });
+    const fakeReq = { headers: { 'user-agent': 'TestAgent' } } as any;
 
-    await controller.logout('Bearer token');
+    await controller.logout('Bearer token', '127.0.0.1', fakeReq);
 
-    expect(authService.logout).toHaveBeenCalledWith('Bearer token');
+    expect(authService.logout).toHaveBeenCalledWith('Bearer token', '127.0.0.1', 'TestAgent');
   });
 });

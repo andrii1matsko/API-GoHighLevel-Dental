@@ -1,12 +1,29 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { SanitizePipe } from './common/pipes/sanitize.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.use(helmet());
+
+  const allowedOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    : [];
+  app.enableCors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
+    credentials: true,
+    maxAge: 600,
+  });
+
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
+    new SanitizePipe(),
     new ValidationPipe({
       transform: true,
       whitelist: true,

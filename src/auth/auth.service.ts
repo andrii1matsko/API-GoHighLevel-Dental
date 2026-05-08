@@ -1,11 +1,13 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditLogService } from '../common/services/audit-log.service';
 import { LoginDto } from './dto/login.dto';
 import { SignUpDto } from './dto/signup.dto';
 import * as bcrypt from 'bcrypt';
@@ -13,10 +15,13 @@ import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   async signUp(dto: SignUpDto) {
@@ -47,17 +52,19 @@ export class AuthService {
     return user;
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ip?: string, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
     });
 
     if (!user) {
+      await this.recordAuthAudit('login_failed', dto.email, null, ip, userAgent, 'User not found');
       throw new UnauthorizedException('Invalid email or password');
     }
 
     const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatches) {
+      await this.recordAuthAudit('login_failed', dto.email, user.id, ip, userAgent, 'Wrong password');
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -85,6 +92,8 @@ export class AuthService {
       },
     );
 
+    await this.recordAuthAudit('login_success', user.email, user.id, ip, userAgent);
+
     return {
       accessToken,
       tokenType: 'Bearer',
@@ -97,7 +106,7 @@ export class AuthService {
     };
   }
 
-  async logout(authorizationHeader?: string) {
+  async logout(authorizationHeader?: string, ip?: string, userAgent?: string) {
     if (!authorizationHeader?.startsWith('Bearer ')) {
       throw new UnauthorizedException(
         'Missing or invalid Authorization header',
@@ -105,12 +114,13 @@ export class AuthService {
     }
 
     const token = authorizationHeader.slice('Bearer '.length);
-    let payload: { sid?: string };
+    let payload: { sid?: string; sub?: string; email?: string };
     try {
       payload = await this.jwtService.verifyAsync(token, {
         secret: this.getJwtSecret(),
       });
     } catch {
+      await this.recordAuthAudit('logout_failed', undefined, undefined, ip, userAgent, 'Invalid or expired token');
       throw new UnauthorizedException('Invalid or expired access token');
     }
 
@@ -128,9 +138,39 @@ export class AuthService {
       },
     });
 
+    await this.recordAuthAudit('logout_success', payload.email, payload.sub, ip, userAgent);
+
     return {
       message: 'Logged out successfully',
     };
+  }
+
+  private async recordAuthAudit(
+    event: string,
+    email?: string,
+    userId?: string | null,
+    ip?: string,
+    userAgent?: string,
+    reason?: string,
+  ): Promise<void> {
+    try {
+      await this.auditLogService.record({
+        actorUserId: userId ?? undefined,
+        actorEmail: email,
+        httpMethod: 'POST',
+        path: `/api/auth/${event.split('_')[0]}`,
+        resourceType: 'auth',
+        resourceId: event,
+        ip,
+        userAgent,
+        statusCode: event.includes('failed') ? 401 : 200,
+        metadata: reason ? { reason } : undefined,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to record auth audit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private getJwtSecret() {

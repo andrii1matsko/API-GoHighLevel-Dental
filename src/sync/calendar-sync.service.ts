@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
 import { LeyrService } from '../integrations/leyr/leyr.service';
 import { CreateAppointmentDto } from '../integrations/gohighlevel/dto/calendars.dto';
 import { CreateLeyrAppointmentDto } from '../integrations/leyr/dto/create-appointment.dto';
+import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
 
 @Injectable()
 export class CalendarSyncService {
@@ -57,6 +59,205 @@ export class CalendarSyncService {
   @Cron(CronExpression.EVERY_10_MINUTES)
   async handleScheduledSync() {
     await this.syncAppointments('scheduled-job');
+  }
+
+  async getSyncStatus() {
+    const [pending, success, failed, total] = await Promise.all([
+      this.prismaService.appointmentSync.count({ where: { status: 'pending' } }),
+      this.prismaService.appointmentSync.count({ where: { status: 'success' } }),
+      this.prismaService.appointmentSync.count({ where: { status: 'failed' } }),
+      this.prismaService.appointmentSync.count(),
+    ]);
+
+    const byDirection = await this.prismaService.appointmentSync.groupBy({
+      by: ['direction', 'status'],
+      _count: true,
+    });
+
+    const directionBreakdown: Record<
+      string,
+      Record<string, number>
+    > = {};
+    for (const row of byDirection) {
+      directionBreakdown[row.direction] ??= {};
+      directionBreakdown[row.direction][row.status] = row._count;
+    }
+
+    return {
+      total,
+      pending,
+      success,
+      failed,
+      byDirection: directionBreakdown,
+      queriedAt: new Date().toISOString(),
+    };
+  }
+
+  async getSyncHistory(query: SyncHistoryQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.AppointmentSyncWhereInput = {};
+    if (query.status) where.status = query.status;
+    if (query.direction) where.direction = query.direction;
+    if (query.sourceSystem) where.sourceSystem = { contains: query.sourceSystem };
+    if (query.from || query.to) {
+      where.createdAt = {};
+      if (query.from) where.createdAt.gte = new Date(query.from);
+      if (query.to) where.createdAt.lte = new Date(query.to);
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prismaService.appointmentSync.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          direction: true,
+          status: true,
+          sourceSystem: true,
+          sourceExternalId: true,
+          targetSystem: true,
+          targetExternalId: true,
+          idempotencyKey: true,
+          errorMessage: true,
+          retryCount: true,
+          syncedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prismaService.appointmentSync.count({ where }),
+    ]);
+
+    return {
+      data: rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getSyncHealth() {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const [
+      totalAll,
+      successAll,
+      failedAll,
+      pendingAll,
+      lastHourTotal,
+      lastHourSuccess,
+      lastHourFailed,
+      last24hTotal,
+      last24hSuccess,
+      last24hFailed,
+      lastSync,
+      oldestPending,
+      recentFailures,
+    ] = await Promise.all([
+      this.prismaService.appointmentSync.count(),
+      this.prismaService.appointmentSync.count({ where: { status: 'success' } }),
+      this.prismaService.appointmentSync.count({ where: { status: 'failed' } }),
+      this.prismaService.appointmentSync.count({ where: { status: 'pending' } }),
+      this.prismaService.appointmentSync.count({
+        where: { createdAt: { gte: oneHourAgo } },
+      }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'success', createdAt: { gte: oneHourAgo } },
+      }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'failed', createdAt: { gte: oneHourAgo } },
+      }),
+      this.prismaService.appointmentSync.count({
+        where: { createdAt: { gte: twentyFourHoursAgo } },
+      }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'success', createdAt: { gte: twentyFourHoursAgo } },
+      }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'failed', createdAt: { gte: twentyFourHoursAgo } },
+      }),
+      this.prismaService.appointmentSync.findFirst({
+        where: { syncedAt: { not: null } },
+        orderBy: { syncedAt: 'desc' },
+        select: { syncedAt: true, direction: true, status: true },
+      }),
+      this.prismaService.appointmentSync.findFirst({
+        where: { status: 'pending' },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+      this.prismaService.appointmentSync.findMany({
+        where: { status: 'failed', createdAt: { gte: twentyFourHoursAgo } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          direction: true,
+          sourceSystem: true,
+          sourceExternalId: true,
+          errorMessage: true,
+          retryCount: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const allTimeSuccessRate =
+      totalAll > 0 ? Math.round((successAll / totalAll) * 10000) / 100 : 0;
+    const lastHourSuccessRate =
+      lastHourTotal > 0
+        ? Math.round((lastHourSuccess / lastHourTotal) * 10000) / 100
+        : null;
+    const last24hSuccessRate =
+      last24hTotal > 0
+        ? Math.round((last24hSuccess / last24hTotal) * 10000) / 100
+        : null;
+
+    const pendingAgeMs = oldestPending?.createdAt
+      ? now.getTime() - oldestPending.createdAt.getTime()
+      : null;
+
+    return {
+      status: failedAll === 0 && pendingAll < 50 ? 'healthy' : pendingAll >= 50 ? 'degraded' : 'warning',
+      allTime: {
+        total: totalAll,
+        success: successAll,
+        failed: failedAll,
+        pending: pendingAll,
+        successRate: allTimeSuccessRate,
+      },
+      lastHour: {
+        total: lastHourTotal,
+        success: lastHourSuccess,
+        failed: lastHourFailed,
+        successRate: lastHourSuccessRate,
+      },
+      last24Hours: {
+        total: last24hTotal,
+        success: last24hSuccess,
+        failed: last24hFailed,
+        successRate: last24hSuccessRate,
+      },
+      lastSuccessfulSync: lastSync?.syncedAt?.toISOString() ?? null,
+      oldestPendingAge: pendingAgeMs !== null
+        ? {
+            ms: pendingAgeMs,
+            human: humanizeDuration(pendingAgeMs),
+          }
+        : null,
+      recentFailures,
+      queriedAt: now.toISOString(),
+    };
   }
 
   async syncAppointments(trigger: string) {
@@ -255,4 +456,15 @@ export class CalendarSyncService {
       },
     });
   }
+}
+
+function humanizeDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
 }

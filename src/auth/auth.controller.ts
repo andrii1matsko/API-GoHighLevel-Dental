@@ -1,5 +1,6 @@
-import { Body, Controller, Headers, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Ip, Post, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { SignUpDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -18,14 +19,22 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ summary: 'Authenticate and get access token' })
-  login(@Body() body: LoginDto) {
-    return this.authService.login(body);
+  login(
+    @Body() body: LoginDto,
+    @Ip() ip: string,
+    @Req() req: Request,
+  ) {
+    return this.authService.login(body, ip, req.headers['user-agent']);
   }
 
   @Post('logout')
   @HttpCode(200)
   @ApiOperation({ summary: 'Revoke current access token session' })
-  logout(@Headers('authorization') authorizationHeader?: string) {
-    return this.authService.logout(authorizationHeader);
+  logout(
+    @Headers('authorization') authorizationHeader: string | undefined,
+    @Ip() ip: string,
+    @Req() req: Request,
+  ) {
+    return this.authService.logout(authorizationHeader, ip, req.headers['user-agent']);
   }
 }

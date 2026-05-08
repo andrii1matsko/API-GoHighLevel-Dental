@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { HealthModule } from './health/health.module';
 import { LeyrModule } from './integrations/leyr/leyr.module';
 import { GohighlevelModule } from './integrations/gohighlevel/gohighlevel.module';
@@ -17,6 +19,24 @@ import { CorrelationIdMiddleware } from './common/middleware/correlation-id.midd
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          {
+            name: 'short',
+            ttl: (config.get<number>('THROTTLE_TTL_SECONDS', 60)) * 1000,
+            limit: config.get<number>('THROTTLE_LIMIT', 60),
+          },
+          {
+            name: 'long',
+            ttl: 600_000,
+            limit: config.get<number>('THROTTLE_LONG_LIMIT', 300),
+          },
+        ],
+      }),
+      inject: [ConfigService],
+    }),
     ScheduleModule.forRoot(),
     CommonModule,
     HealthModule,
@@ -26,6 +46,12 @@ import { CorrelationIdMiddleware } from './common/middleware/correlation-id.midd
     CalendarSyncModule,
     AuthModule,
     MasterDataModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule implements NestModule {
