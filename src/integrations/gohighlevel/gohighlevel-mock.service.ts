@@ -17,6 +17,11 @@ import {
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
 } from './dto/calendars.dto';
+import {
+  CreateContactDto,
+  DeleteContactQueryDto,
+  GetContactQueryDto,
+} from './dto/contacts.dto';
 
 export interface ExternalAppointment {
   id: string;
@@ -126,6 +131,7 @@ const MOCK_GROUPS = [
 ];
 
 const inMemoryGhlAppointments: Array<Record<string, unknown>> = [];
+const inMemoryGhlContacts: Array<Record<string, unknown>> = [];
 
 function generateFreeSlots(
   startDate: number,
@@ -443,6 +449,61 @@ export class GohighlevelMockService {
       throw new HttpException('startTime and endTime are required', 400);
     }
     return { events: [] };
+  }
+
+  async createContact(payload: CreateContactDto) {
+    const locationId = payload.locationId || MOCK_LOCATION_ID;
+    const id = `ghl-contact-mock-${randomUUID().slice(0, 12)}`;
+
+    const contact: Record<string, unknown> = {
+      id,
+      locationId,
+      firstName: payload.firstName ?? null,
+      lastName: payload.lastName ?? null,
+      name: payload.name ?? ([payload.firstName, payload.lastName].filter(Boolean).join(' ') || null),
+      email: payload.email ?? null,
+      phone: payload.phone ?? null,
+      gender: payload.gender ?? null,
+      address1: payload.address1 ?? null,
+      city: payload.city ?? null,
+      state: payload.state ?? null,
+      postalCode: payload.postalCode ?? null,
+      website: payload.website ?? null,
+      timezone: payload.timezone ?? null,
+      dnd: payload.dnd ?? false,
+      tags: payload.tags ?? [],
+      source: payload.source ?? 'public api',
+      dateOfBirth: payload.dateOfBirth ?? null,
+      country: payload.country ?? null,
+      companyName: payload.companyName ?? null,
+      assignedTo: payload.assignedTo ?? null,
+      dateAdded: new Date().toISOString(),
+    };
+
+    inMemoryGhlContacts.push(contact);
+    return { contact };
+  }
+
+  async getContact(contactId: string, _query: GetContactQueryDto) {
+    if (!contactId) {
+      throw new HttpException('Missing contactId', 400);
+    }
+    const contact = inMemoryGhlContacts.find((c) => c.id === contactId);
+    if (!contact) {
+      throw new HttpException('Contact not found', 404);
+    }
+    return { contact };
+  }
+
+  async deleteContact(contactId: string, _query: DeleteContactQueryDto) {
+    if (!contactId) {
+      throw new HttpException('Missing contactId', 400);
+    }
+    const idx = inMemoryGhlContacts.findIndex((c) => c.id === contactId);
+    if (idx !== -1) {
+      inMemoryGhlContacts.splice(idx, 1);
+    }
+    return { succeded: true, message: 'Deleted successfully' };
   }
 
   async createAppointment(

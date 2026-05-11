@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
+import { CreateLeyrPatientDto } from './dto/create-patient.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 
 type QueryValue = string | number | boolean | undefined;
@@ -118,6 +119,10 @@ export class LeyrService {
         typeof data?.detail === 'string'
           ? data.detail
           : axiosError.message || 'Leyr API request failed';
+
+      this.logger.error(
+        `Leyr POST ${path} failed (${status}): ${JSON.stringify(data)}`,
+      );
 
       throw new HttpException(
         {
@@ -248,6 +253,17 @@ export class LeyrService {
       care_unit_id: careUnitId,
       patient_id: patientId,
     });
+  }
+
+  createPatient(
+    careUnitId: string,
+    payload: CreateLeyrPatientDto,
+    emr?: string,
+  ) {
+    return this.post(
+      `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/patients`,
+      payload,
+    );
   }
 
   createAppointment(

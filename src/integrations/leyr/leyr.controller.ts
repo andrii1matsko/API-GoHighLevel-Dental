@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeyrService } from './leyr.service';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
+import { CreateLeyrPatientDto } from './dto/create-patient.dto';
 
 @ApiTags('Leyr (Opus Test)')
 @Controller('leyr')
@@ -131,6 +132,22 @@ export class LeyrController {
     @Query('emr') emr?: string,
   ) {
     return this.leyrService.getMedicalNotes(careUnitId, patientId, emr);
+  }
+
+  @Post('emrs/:emr/care-units/:careUnitId/patients')
+  @ApiOperation({
+    summary: 'Create or update patient in Leyr for a care unit',
+    description:
+      'Registers a new patient in the EMR. If an account with the provided identifier already exists, the existing account is updated.',
+  })
+  @ApiParam({ name: 'emr', required: true, example: 'opus' })
+  @ApiParam({ name: 'careUnitId', required: true })
+  createPatient(
+    @Param('emr') emr: string,
+    @Param('careUnitId') careUnitId: string,
+    @Body() body: CreateLeyrPatientDto,
+  ) {
+    return this.leyrService.createPatient(careUnitId, body, emr);
   }
 
   @Post('emrs/:emr/care-units/:careUnitId/appointments')

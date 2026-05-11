@@ -21,6 +21,11 @@ import {
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
 } from './dto/calendars.dto';
+import {
+  CreateContactDto,
+  DeleteContactQueryDto,
+  GetContactQueryDto,
+} from './dto/contacts.dto';
 
 export interface ExternalAppointment {
   id: string;
@@ -1110,6 +1115,112 @@ export class GohighlevelService {
             'Failed to fetch GoHighLevel blocked slots';
 
       this.logger.error('GoHighLevel get blocked slots failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async createContact(payload: CreateContactDto) {
+    const locationId = this.resolveLocationId(payload.locationId);
+
+    const requestPayload = {
+      ...payload,
+      locationId,
+    };
+    delete (requestPayload as { accessToken?: string }).accessToken;
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.post(`${this.baseUrl}/contacts/`, requestPayload, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-07-28',
+              },
+            }),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to create GoHighLevel contact';
+
+      this.logger.error('GoHighLevel create contact failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async getContact(contactId: string, query: GetContactQueryDto) {
+    if (!contactId) {
+      throw new HttpException('Missing contactId', 400);
+    }
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/contacts/${contactId}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-07-28',
+              },
+            }),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to fetch GoHighLevel contact';
+
+      this.logger.error('GoHighLevel get contact failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async deleteContact(contactId: string, query: DeleteContactQueryDto) {
+    if (!contactId) {
+      throw new HttpException('Missing contactId', 400);
+    }
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        query.accessToken,
+        this.oauthLocationId || this.locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.delete(`${this.baseUrl}/contacts/${contactId}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-07-28',
+              },
+            }),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to delete GoHighLevel contact';
+
+      this.logger.error('GoHighLevel delete contact failed', details);
       throw new HttpException(details, status);
     }
   }

@@ -26,7 +26,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<RequestWithContext>();
 
-    const { status, message, code } = this.normalizeException(exception);
+    const { status, message, code, detail } = this.normalizeException(exception);
     const isProd =
       this.configService.get<string>('NODE_ENV') === 'production' ||
       process.env.NODE_ENV === 'production';
@@ -41,6 +41,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (code) {
       body.code = code;
+    }
+
+    if (detail !== undefined) {
+      body.detail = detail;
     }
 
     if (!isProd && exception instanceof Error && exception.stack) {
@@ -58,6 +62,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     status: number;
     message: string | string[];
     code?: string;
+    detail?: unknown;
   } {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
@@ -68,7 +73,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (typeof res === 'object' && res !== null) {
         const obj = res as Record<string, unknown>;
         const msg = obj.message;
-        return {
+        const result: { status: number; message: string | string[]; code?: string; detail?: unknown } = {
           status,
           message: Array.isArray(msg)
             ? (msg as string[])
@@ -76,6 +81,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
               ? msg
               : exception.message,
         };
+        if (obj.leyr !== undefined) {
+          result.detail = obj.leyr;
+        }
+        return result;
       }
       return { status, message: exception.message };
     }

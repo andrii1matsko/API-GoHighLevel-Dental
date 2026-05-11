@@ -37,6 +37,11 @@ import {
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
 } from './dto/calendars.dto';
+import {
+  CreateContactDto,
+  DeleteContactQueryDto,
+  GetContactQueryDto,
+} from './dto/contacts.dto';
 import { GhlAppointmentCreateWebhookDto } from './dto/webhook-appointment-create.dto';
 import { GhlAppointmentMutationWebhookDto } from './dto/webhook-appointment-mutation.dto';
 
@@ -94,6 +99,44 @@ export class GohighlevelController {
   })
   createLocationToken(@Body() body: CreateLocationTokenDto) {
     return this.gohighlevelService.createLocationAccessToken(body);
+  }
+
+  @Post('contacts')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Create a new contact' })
+  @ApiBadRequestResponse({ description: 'Missing locationId or invalid payload' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  createContact(@Body() body: CreateContactDto) {
+    return this.gohighlevelService.createContact(body);
+  }
+
+  @Get('contacts/:contactId')
+  @ApiOperation({ summary: 'Get contact by ID' })
+  @ApiBadRequestResponse({ description: 'Missing contactId' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  getContact(
+    @Param('contactId') contactId: string,
+    @Query() query: GetContactQueryDto,
+  ) {
+    return this.gohighlevelService.getContact(contactId, query);
+  }
+
+  @Delete('contacts/:contactId')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Delete contact by ID' })
+  @ApiBadRequestResponse({ description: 'Missing contactId' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  deleteContact(
+    @Param('contactId') contactId: string,
+    @Query() query: DeleteContactQueryDto,
+  ) {
+    return this.gohighlevelService.deleteContact(contactId, query);
   }
 
   @Get('calendars')

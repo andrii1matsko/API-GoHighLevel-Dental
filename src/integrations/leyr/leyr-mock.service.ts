@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
+import { CreateLeyrPatientDto } from './dto/create-patient.dto';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
@@ -313,6 +314,47 @@ export class LeyrMockService {
         author: 'Dr. Sofia Andersson',
       },
     ]);
+  }
+
+  createPatient(
+    careUnitId: string,
+    payload: CreateLeyrPatientDto,
+    _emr?: string,
+  ) {
+    const patientId = `pat-mock-${randomUUID().slice(0, 12)}`;
+    const patient: Record<string, unknown> = {
+      id: patientId,
+      emr_id: `opus-pat-${randomUUID().slice(0, 8)}`,
+      first_name: payload.first_name ?? null,
+      last_name: payload.last_name ?? null,
+      other_name: payload.other_name ?? null,
+      birth_datetime: payload.birth_datetime ?? null,
+      gender: payload.gender ?? null,
+      addresses: payload.addresses ?? [],
+      phones: payload.phones ?? [],
+      emails: payload.emails ?? [],
+      external_id: payload.external_id ?? null,
+      languages: payload.languages ?? null,
+      contacts: payload.contacts ?? [],
+      title: payload.title ?? null,
+      ethnicity: payload.ethnicity ?? null,
+      protected_identity: null,
+      care_unit_id: careUnitId,
+      deceased: null,
+    };
+
+    MOCK_PATIENTS.push({
+      id: patientId,
+      first_name: payload.first_name ?? '',
+      last_name: payload.last_name ?? '',
+      date_of_birth: payload.birth_datetime ?? '',
+      email: payload.emails?.[0] ?? '',
+      phone: payload.phones?.[0] ?? '',
+      ssn: payload.external_id ?? '',
+      care_unit_id: careUnitId,
+    });
+
+    return Promise.resolve(patient);
   }
 
   async createAppointment(
