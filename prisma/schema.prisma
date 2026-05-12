@@ -145,6 +145,7 @@ model AppointmentSync {
   idempotencyKey    String?  @unique
   errorMessage      String?
   retryCount        Int      @default(0)
+  nextRetryAfter    DateTime?
   syncedAt          DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -157,6 +158,57 @@ model AppointmentSync {
   @@index([direction, status, createdAt])
   @@index([sourceSystem, sourceExternalId])
   @@index([targetSystem, targetExternalId])
+}
+
+model IdentityMapping {
+  id             String   @id @default(cuid())
+  ghlContactId   String
+  ghlLocationId  String
+  leyrPatientId  String
+  leyrEmr        String
+  leyrCareUnitId String
+
+  firstName   String?
+  lastName    String?
+  email       String?
+  phone       String?
+  dateOfBirth String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ghlContactId, ghlLocationId])
+  @@unique([leyrPatientId, leyrEmr, leyrCareUnitId])
+  @@index([ghlContactId])
+  @@index([leyrPatientId])
+}
+
+model AppointmentLink {
+  id                String    @id @default(cuid())
+  ghlAppointmentId  String    @unique
+  leyrAppointmentId String    @unique
+  leyrEmr           String
+  leyrCareUnitId    String
+  lastSyncDirection String
+  lastSyncedAt      DateTime
+  echoGuardUntil    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([ghlAppointmentId])
+  @@index([leyrAppointmentId])
+}
+
+model ServiceMapping {
+  id                      String  @id @default(cuid())
+  ghlCalendarId           String  @unique
+  ghlCalendarName         String?
+  leyrHealthcareServiceId String
+  leyrResourceId          String
+  leyrCareUnitId          String
+  leyrEmr                 String
+
+  @@unique([leyrHealthcareServiceId, leyrResourceId, leyrCareUnitId])
 }
 
 model GhlOAuthToken {

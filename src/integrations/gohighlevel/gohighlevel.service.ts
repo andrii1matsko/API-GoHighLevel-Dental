@@ -25,6 +25,8 @@ import {
   CreateContactDto,
   DeleteContactQueryDto,
   GetContactQueryDto,
+  SearchContactsByNameDto,
+  SearchContactsDto,
 } from './dto/contacts.dto';
 
 export interface ExternalAppointment {
@@ -1223,6 +1225,87 @@ export class GohighlevelService {
       this.logger.error('GoHighLevel delete contact failed', details);
       throw new HttpException(details, status);
     }
+  }
+
+  async searchContacts(payload: SearchContactsDto) {
+    const locationId = this.resolveLocationId(payload.locationId);
+
+    const requestPayload: Record<string, unknown> = {
+      locationId,
+      pageLimit: payload.pageLimit ?? 20,
+    };
+    if (payload.page != null) requestPayload.page = payload.page;
+    if (payload.searchAfter) requestPayload.searchAfter = payload.searchAfter;
+    if (payload.filters) requestPayload.filters = payload.filters;
+    if (payload.sort) requestPayload.sort = payload.sort;
+    if (payload.query) requestPayload.query = payload.query;
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.post(
+              `${this.baseUrl}/contacts/search`,
+              requestPayload,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-07-28',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to search GoHighLevel contacts';
+
+      this.logger.error('GoHighLevel search contacts failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async searchContactByName(payload: SearchContactsByNameDto) {
+    const locationId = this.resolveLocationId(payload.locationId);
+
+    const searchPayload: SearchContactsDto = {
+      accessToken: payload.accessToken,
+      locationId,
+      pageLimit: 1,
+      page: 1,
+      filters: [
+        {
+          group: 'AND',
+          filters: [
+            {
+              field: 'firstNameLowerCase',
+              operator: 'eq',
+              value: payload.firstName.toLowerCase(),
+            },
+            {
+              field: 'lastNameLowerCase',
+              operator: 'eq',
+              value: payload.lastName.toLowerCase(),
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await this.searchContacts(searchPayload);
+    const contacts = (result as { contacts?: unknown[] })?.contacts ?? [];
+    return {
+      found: contacts.length > 0,
+      contact: contacts[0] ?? null,
+    };
   }
 
   async createAppointment(

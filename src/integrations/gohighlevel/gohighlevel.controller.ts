@@ -41,6 +41,8 @@ import {
   CreateContactDto,
   DeleteContactQueryDto,
   GetContactQueryDto,
+  SearchContactsByNameDto,
+  SearchContactsDto,
 } from './dto/contacts.dto';
 import { GhlAppointmentCreateWebhookDto } from './dto/webhook-appointment-create.dto';
 import { GhlAppointmentMutationWebhookDto } from './dto/webhook-appointment-mutation.dto';
@@ -110,6 +112,56 @@ export class GohighlevelController {
   })
   createContact(@Body() body: CreateContactDto) {
     return this.gohighlevelService.createContact(body);
+  }
+
+  @Post('contacts/search')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Search contacts with advanced filters',
+    description:
+      'Search contacts based on combinations of advanced filters, sorting, and pagination.',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        contacts: [],
+        total: 0,
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Missing locationId or invalid filters' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  searchContacts(@Body() body: SearchContactsDto) {
+    return this.gohighlevelService.searchContacts(body);
+  }
+
+  @Post('contacts/search/by-name')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Find a contact by first and last name',
+    description:
+      'Convenience endpoint that searches for a contact matching exact first + last name. Returns { found: boolean, contact: object | null }.',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        found: true,
+        contact: {
+          id: 'abc123',
+          firstName: 'John',
+          lastName: 'Doe',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Missing firstName or lastName' })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  searchContactByName(@Body() body: SearchContactsByNameDto) {
+    return this.gohighlevelService.searchContactByName(body);
   }
 
   @Get('contacts/:contactId')

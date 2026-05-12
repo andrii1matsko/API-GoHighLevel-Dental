@@ -21,6 +21,8 @@ import {
   CreateContactDto,
   DeleteContactQueryDto,
   GetContactQueryDto,
+  SearchContactsByNameDto,
+  SearchContactsDto,
 } from './dto/contacts.dto';
 
 export interface ExternalAppointment {
@@ -504,6 +506,52 @@ export class GohighlevelMockService {
       inMemoryGhlContacts.splice(idx, 1);
     }
     return { succeded: true, message: 'Deleted successfully' };
+  }
+
+  async searchContacts(payload: SearchContactsDto) {
+    const locationId = payload.locationId || MOCK_LOCATION_ID;
+    let results = inMemoryGhlContacts.filter(
+      (c) => c.locationId === locationId,
+    );
+
+    if (payload.query) {
+      const q = payload.query.toLowerCase();
+      results = results.filter(
+        (c) =>
+          String(c.firstName ?? '').toLowerCase().includes(q) ||
+          String(c.lastName ?? '').toLowerCase().includes(q) ||
+          String(c.name ?? '').toLowerCase().includes(q) ||
+          String(c.email ?? '').toLowerCase().includes(q),
+      );
+    }
+
+    const page = payload.page ?? 1;
+    const pageLimit = payload.pageLimit ?? 20;
+    const start = (page - 1) * pageLimit;
+    const paged = results.slice(start, start + pageLimit);
+
+    return {
+      contacts: paged,
+      total: results.length,
+    };
+  }
+
+  async searchContactByName(payload: SearchContactsByNameDto) {
+    const locationId = payload.locationId || MOCK_LOCATION_ID;
+    const firstName = payload.firstName.toLowerCase();
+    const lastName = payload.lastName.toLowerCase();
+
+    const match = inMemoryGhlContacts.find(
+      (c) =>
+        c.locationId === locationId &&
+        String(c.firstName ?? '').toLowerCase() === firstName &&
+        String(c.lastName ?? '').toLowerCase() === lastName,
+    );
+
+    return {
+      found: !!match,
+      contact: match ?? null,
+    };
   }
 
   async createAppointment(

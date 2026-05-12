@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -295,4 +297,125 @@ export class DeleteContactQueryDto {
   @IsOptional()
   @IsString()
   accessToken?: string;
+}
+
+class SearchContactFilter {
+  @ApiPropertyOptional({ example: 'firstNameLowerCase' })
+  @IsOptional()
+  @IsString()
+  field?: string;
+
+  @ApiPropertyOptional({
+    example: 'eq',
+    enum: ['eq', 'not_eq', 'contains', 'not_contains', 'exists', 'not_exists', 'range'],
+  })
+  @IsOptional()
+  @IsString()
+  operator?: string;
+
+  @ApiPropertyOptional({ example: 'john' })
+  @IsOptional()
+  value?: unknown;
+
+  @ApiPropertyOptional({ enum: ['AND', 'OR'] })
+  @IsOptional()
+  @IsString()
+  group?: 'AND' | 'OR';
+
+  @ApiPropertyOptional({ type: () => [SearchContactFilter] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SearchContactFilter)
+  filters?: SearchContactFilter[];
+}
+
+class SearchContactSort {
+  @ApiProperty({ example: 'firstNameLowerCase' })
+  @IsString()
+  field!: string;
+
+  @ApiProperty({ example: 'asc', enum: ['asc', 'desc'] })
+  @IsString()
+  direction!: 'asc' | 'desc';
+}
+
+export class SearchContactsDto {
+  @ApiPropertyOptional({
+    description: 'Override location access token for this request',
+  })
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
+
+  @ApiProperty({
+    example: 've9EPM428h8vShlRW1KT',
+    description: 'Location ID to search within',
+  })
+  @IsString()
+  locationId!: string;
+
+  @ApiPropertyOptional({ example: 1, description: 'Page number (standard pagination)' })
+  @IsOptional()
+  @IsNumber()
+  page?: number;
+
+  @ApiPropertyOptional({ example: 20, description: 'Results per page (max 500)' })
+  @IsOptional()
+  @IsNumber()
+  pageLimit?: number;
+
+  @ApiPropertyOptional({
+    description: 'Cursor for pagination beyond 10,000 records',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  searchAfter?: string[];
+
+  @ApiPropertyOptional({ type: [SearchContactFilter] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SearchContactFilter)
+  filters?: SearchContactFilter[];
+
+  @ApiPropertyOptional({ type: [SearchContactSort] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SearchContactSort)
+  sort?: SearchContactSort[];
+
+  @ApiPropertyOptional({
+    example: 'John Doe',
+    description: 'Free-text query to run against searchable fields (max 75 chars)',
+  })
+  @IsOptional()
+  @IsString()
+  query?: string;
+}
+
+export class SearchContactsByNameDto {
+  @ApiPropertyOptional({
+    description: 'Override location access token for this request',
+  })
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
+
+  @ApiPropertyOptional({
+    description: 'Location ID to search within (falls back to env config)',
+  })
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
+  @ApiProperty({ example: 'John', description: 'First name of the contact' })
+  @IsString()
+  firstName!: string;
+
+  @ApiProperty({ example: 'Doe', description: 'Last name of the contact' })
+  @IsString()
+  lastName!: string;
 }
