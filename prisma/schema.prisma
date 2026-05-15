@@ -199,16 +199,55 @@ model AppointmentLink {
   @@index([leyrAppointmentId])
 }
 
-model ServiceMapping {
+model FacilityMapping {
+  id               String   @id @default(cuid())
+  ghlLocationId    String
+  ghlGroupId       String
+  ghlGroupName     String?
+  leyrCareUnitId   String
+  leyrEmr          String
+  leyrCareUnitName String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  calendarMappings CalendarServiceMapping[]
+  staffMappings    StaffResourceMapping[]
+
+  @@unique([ghlGroupId, ghlLocationId])
+  @@unique([leyrCareUnitId, leyrEmr])
+  @@index([ghlLocationId])
+}
+
+model CalendarServiceMapping {
   id                      String  @id @default(cuid())
+  facilityMappingId       String
   ghlCalendarId           String  @unique
   ghlCalendarName         String?
   leyrHealthcareServiceId String
-  leyrResourceId          String
-  leyrCareUnitId          String
-  leyrEmr                 String
+  leyrServiceName         String?
 
-  @@unique([leyrHealthcareServiceId, leyrResourceId, leyrCareUnitId])
+  facility FacilityMapping @relation(fields: [facilityMappingId], references: [id], onDelete: Cascade)
+
+  @@unique([leyrHealthcareServiceId, facilityMappingId])
+  @@index([facilityMappingId])
+}
+
+model StaffResourceMapping {
+  id                String  @id @default(cuid())
+  facilityMappingId String
+  ghlUserId         String
+  ghlUserName       String?
+  ghlUserEmail      String?
+  leyrResourceId    String
+  leyrResourceName  String?
+
+  facility FacilityMapping @relation(fields: [facilityMappingId], references: [id], onDelete: Cascade)
+
+  @@unique([ghlUserId, facilityMappingId])
+  @@unique([leyrResourceId, facilityMappingId])
+  @@index([facilityMappingId])
+  @@index([ghlUserId])
+  @@index([leyrResourceId])
 }
 
 model GhlOAuthToken {

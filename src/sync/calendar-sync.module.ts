@@ -3,10 +3,18 @@ import { GohighlevelModule } from '../integrations/gohighlevel/gohighlevel.modul
 import { LeyrModule } from '../integrations/leyr/leyr.module';
 import { CalendarSyncController } from './calendar-sync.controller';
 import { CalendarSyncService } from './calendar-sync.service';
+import { IdentityResolverService } from './identity-resolver.service';
+import { ServiceMappingResolverService } from './service-mapping-resolver.service';
+import { MappingsController } from './mappings.controller';
 
 @Module({
   imports: [GohighlevelModule, LeyrModule],
-  controllers: [CalendarSyncController],
-  providers: [CalendarSyncService],
+  controllers: [CalendarSyncController, MappingsController],
+  providers: [
+    CalendarSyncService,
+    IdentityResolverService,
+    ServiceMappingResolverService,
+  ],
+  exports: [IdentityResolverService, ServiceMappingResolverService],
 })
 export class CalendarSyncModule {}
