@@ -30,6 +30,45 @@ const IDS = {
 };
 
 // ---------------------------------------------------------------------------
+// Real Leyr (Opus) ↔ GoHighLevel mapping data
+// ---------------------------------------------------------------------------
+const LEYR = {
+  emr: 'opus',
+  careUnit: {
+    id: 'L0_64fc933b-a94a-40ef-b00a-bbba40c2076d',
+    name: 'Opus Care Unit',
+  },
+  services: [
+    { id: 'd37c1087-507d-4c7d-8df6-36f5054bcd5d', name: 'Gastroenterology Examination', description: 'Diagnosis and treatment of digestive system issues.', duration: 15 },
+    { id: '9946cd28-a42d-4a20-9dea-667583114c01', name: 'General Consultation', description: 'A routine visit with a general practitioner for health assessment.', duration: 30 },
+    { id: '23d5e56f-1378-4938-93a2-cb12c4d95984', name: 'Health Screening', description: 'Medical tests to detect health conditions early.', duration: 30 },
+    { id: 'd5f8b304-f777-417b-9781-23e7be8754e8', name: 'Pain Management Session', description: 'Treatment for chronic or acute pain.', duration: 45 },
+    { id: '012074fc-8bd9-471d-826e-c227957a6406', name: 'Physical Therapy Session', description: 'Treatment to improve movement and manage pain.', duration: 60 },
+    { id: 'cbbe5868-5ef5-4a41-b4b2-554134af94e5', name: 'General Consultation', description: 'A routine visit with a general practitioner for health assessment.', duration: 60 },
+    { id: 'fa206ac5-7ac4-42fd-a54a-322082b12adc', name: 'Gastroenterology Examination', description: 'Diagnosis and treatment of digestive system issues.', duration: 15 },
+    { id: 'bd52de1b-6122-4609-8f5e-0855fae4f398', name: 'Endocrinology Visit', description: 'Management of hormonal disorders.', duration: 30 },
+    { id: 'fce86326-7fba-4016-b4a7-95e3da30e4c5', name: 'Dermatology Appointment', description: 'Consultation for skin, hair, and nail conditions.', duration: 15 },
+    { id: 'e6934f90-4fce-4fd5-a725-843e2c4f3685', name: 'Mental Health Counseling', description: 'Therapy sessions for mental health support.', duration: 60 },
+  ],
+};
+
+const GHL = {
+  locationId: 'tSGR98o9w8c3EWX4KwqY',
+  groupId: 'vWXVQMm2tvptaHpuEESe',
+  groupName: 'Opus',
+  calendars: [
+    { id: '82dVfrACDr3vcfNA8RTU', name: 'Mental Health Counseling', leyrServiceId: 'e6934f90-4fce-4fd5-a725-843e2c4f3685' },
+    { id: 'Eu5EqR2gqsfVKirXlAch', name: 'Pain Management Session', leyrServiceId: 'd5f8b304-f777-417b-9781-23e7be8754e8' },
+    { id: 'GQA1VF3yP4T87RG1n6I3', name: 'Dermatology Appointment', leyrServiceId: 'fce86326-7fba-4016-b4a7-95e3da30e4c5' },
+    { id: 'MO9AWw4zwRTkcoXg5DLX', name: 'Physical Therapy Session', leyrServiceId: '012074fc-8bd9-471d-826e-c227957a6406' },
+    { id: 'ScagjdPpz20Pw24MOfOp', name: 'General Consultation', leyrServiceId: '9946cd28-a42d-4a20-9dea-667583114c01' },
+    { id: 'TszPpEXSvipb2Wm8BKTB', name: 'Gastroenterology Examination', leyrServiceId: 'd37c1087-507d-4c7d-8df6-36f5054bcd5d' },
+    { id: 'bgLXot07yL7lWEbz89M0', name: 'Health Screening', leyrServiceId: '23d5e56f-1378-4938-93a2-cb12c4d95984' },
+    { id: 'j2g6kCWVVQc3Wc0ZW7Eg', name: 'Endocrinology Visit', leyrServiceId: 'bd52de1b-6122-4609-8f5e-0855fae4f398' },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 function daysFromNow(days: number, hour = 9, minute = 0): Date {
@@ -516,31 +555,126 @@ async function seedAppointmentSyncs() {
 }
 
 async function seedGhlOAuthToken() {
-  const token = {
-    id: 'seed-oauth-token-1',
-    companyId: 'ghl-company-dental',
-    locationId: 'ghl-loc-stockholm',
-    userType: 'Location',
-    accessToken: 'seed-access-token-placeholder',
-    accessTokenExpiresAt: hoursLater(new Date(), 1),
-    refreshToken: 'seed-refresh-token-placeholder',
+  await prisma.ghlOAuthToken.deleteMany();
+
+  const agencyToken = {
+    id: 'seed-oauth-token-agency',
+    companyId: 'K7zNUgbS3nWJ1g31K6nF',
+    locationId: 'K7zNUgbS3nWJ1g31K6nF',
+    userType: 'Company',
+    accessToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdXRoQ2xhc3MiOiJDb21wYW55IiwiYXV0aENsYXNzSWQiOiJLN3pOVWdiUzNuV0oxZzMxSzZuRiIsInNvdXJjZSI6IklOVEVHUkFUSU9OIiwic291cmNlSWQiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMtbW84ZXN0dDciLCJjaGFubmVsIjoiT0FVVEgiLCJwcmltYXJ5QXV0aENsYXNzSWQiOiJLN3pOVWdiUzNuV0oxZzMxSzZuRiIsIm9hdXRoTWV0YSI6eyJzY29wZXMiOlsiY2FsZW5kYXJzLnJlYWRvbmx5IiwiY2FsZW5kYXJzLndyaXRlIiwiY2FsZW5kYXJzL2V2ZW50cy5yZWFkb25seSIsImNhbGVuZGFycy9ldmVudHMud3JpdGUiLCJjYWxlbmRhcnMvZ3JvdXBzLnJlYWRvbmx5IiwiY2FsZW5kYXJzL2dyb3Vwcy53cml0ZSIsImNhbGVuZGFycy9yZXNvdXJjZXMucmVhZG9ubHkiLCJjYWxlbmRhcnMvcmVzb3VyY2VzLndyaXRlIiwib2F1dGgud3JpdGUiLCJvYXV0aC5yZWFkb25seSJdLCJjbGllbnQiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMiLCJ2ZXJzaW9uSWQiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMiLCJjbGllbnRLZXkiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMtbW84ZXN0dDciLCJhZ2VuY3lQbGFuIjoiYWdlbmN5X21vbnRobHlfNDk3In0sImlhdCI6MTc3OTI2MjU2OS45ODQsImV4cCI6MTc3OTM0ODk2OS45ODR9.Gzl4hgwK0O1S72PWyoLxHI-_zxmbzwlmbdHCxeBpOoCyV51MBknm0FCY-akAQUV83T-PZFu6J6BakIO1PhbbboCke_d8rWajWU9EBkO-J3B2-Guee_3-8fz0O_mIzbHeujR_MAoZBLxaBW5yd5DrNoSlffqxdTeQqeBbRxfdCtVsog86-5KA7pWsbmmVzTQcbu0AQ2jwePmACD67tooV7TAdvTyt00CNZWPBh62VjNPsd-gjSiwQYaNIrQjNJSI4FvVAW9OmyK-3Osd3O6zlibt5foTyeqxVg717i22yKxS81eHDoUhGwLYKSBWkGNeQVdX_EHI-ziCyc-WK45x2Tna1be-WS3IbRQyhcFtmAx1JIASk1EwF8FztSRZo_Z5wm71N7k1fMa9Kwn8GwpDPIHnQMVm6H_vD2RFbSSync9CB838RhNvcvhfY-jKZxG-INVEgVzBXWQtzIdi4oqm0Z25MNwI8YsJWsruUcu9AQeezs1vkgRW7HmJJSSbVjLUAMMhkoHIqeLuVyMKIpa42ePpFXvBAaNvpOxDwWxbzQ_ayL7vEsxEbwdQDbllEeaow_PHz8adWWA-UDKW-7VCWkqfIoFv9kzWWIDdns1xN1SUnu39W6Yw1yLoPoYe1YrDKThqMWvf8lE-SI2BK9Eu1yh2-X5Wmyi7rxcKZxG_6qgA',
+    accessTokenExpiresAt: new Date(Date.now() + 86399 * 1000),
+    refreshToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdXRoQ2xhc3MiOiJDb21wYW55IiwiYXV0aENsYXNzSWQiOiJLN3pOVWdiUzNuV0oxZzMxSzZuRiIsInNvdXJjZSI6IklOVEVHUkFUSU9OIiwic291cmNlSWQiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMtbW84ZXN0dDciLCJjaGFubmVsIjoiT0FVVEgiLCJwcmltYXJ5QXV0aENsYXNzSWQiOiJLN3pOVWdiUzNuV0oxZzMxSzZuRiIsIm9hdXRoTWV0YSI6eyJzY29wZXMiOlsiY2FsZW5kYXJzLnJlYWRvbmx5IiwiY2FsZW5kYXJzLndyaXRlIiwiY2FsZW5kYXJzL2V2ZW50cy5yZWFkb25seSIsImNhbGVuZGFycy9ldmVudHMud3JpdGUiLCJjYWxlbmRhcnMvZ3JvdXBzLnJlYWRvbmx5IiwiY2FsZW5kYXJzL2dyb3Vwcy53cml0ZSIsImNhbGVuZGFycy9yZXNvdXJjZXMucmVhZG9ubHkiLCJjYWxlbmRhcnMvcmVzb3VyY2VzLndyaXRlIiwib2F1dGgud3JpdGUiLCJvYXV0aC5yZWFkb25seSJdLCJjbGllbnQiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMiLCJ2ZXJzaW9uSWQiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMiLCJjbGllbnRLZXkiOiI2OWU3Mzc4ZjJlZjM2NTNjMTlkZWM0OWMtbW84ZXN0dDcifSwiaWF0IjoxNzc5MjYyNTY5Ljk5LCJleHAiOjE4MTA3OTg1NjkuOTksInVuaXF1ZUlkIjoiODZiNzYyOGMtODVmMy00ZGIxLWJlNmMtNGJiMTY3MDRlMjU1IiwidiI6IjIifQ.X2qxgy9EOawXuyYlSsxqU2gIVBWlwXd9B5zpjcUc1sDi0MHFf09FAxVn5T9MWarklfnKKvDHv3DL1e7aLgtQvTZcyZrq9DmVChnLasFdquXBW9lHTPSv8UA2vRBXOW4OHfOnnaNcJpVsRy6ndXLHqByj75hTSDZ1V-KOdxhorj87zrb6l4oQemnZzCn-gXeugfAy-7FGexH9LY5YcTX-kh3FMCcSu2NaWB6ZGfOe9hXfiaOV6u3tPZXqeXKFoMOvWS-1bbzomWFdqR_fu6sek9kZKMQVF2iJ8wlXRBXw5_CdIG3IJr4e7hMwnp_X0RangRjePoMGG6oqQ5qRjoPja1Uzcsg9CNlt6BIW5xSC-Rxwh9aJoZCSe7PZKzX4ELTaapzX9Ll8R7NXm6e_Fj6rvXVv0IZmPBTmImbT9IL00p1Ma6_4_Vo-lUHTyF6DjnzueexG0Vu2k0ZNeW_YJKNqLu0X8TWMN2nvuhTCoU48HmFmLi3lBNiGfM2DfFQC-V7-UxLbIy_ub-bhCjnkbVIMLFm1Xh29yA41x6HvQU-jEabpftlqZBxNpYW_vUICtzrkHjA__Tl5c0BaqgfTKf1hsgN-7pKZCyO9ZAK3Bf1Hz9SaQs2YEDcFp4g8w5T_Y1U1rqQ7i8t8rJdXNRFOkqlv1MVZ_qErEzVrA2iu_N6SilU',
     tokenType: 'Bearer',
-    scope: 'calendars.readonly calendars.write contacts.readonly',
+    scope: 'calendars.readonly calendars.write calendars/events.readonly calendars/events.write calendars/groups.readonly calendars/groups.write calendars/resources.readonly calendars/resources.write oauth.write oauth.readonly',
+    refreshTokenId: '6a0d64695380af000f0d0398',
+    userId: 'dSrFYytz0NhjXC9LvJEN',
+    isBulkInstallation: true,
   };
 
-  await prisma.ghlOAuthToken.upsert({
-    where: {
-      companyId_locationId_userType: {
-        companyId: token.companyId,
-        locationId: token.locationId,
-        userType: token.userType,
-      },
+  const locationToken = {
+    id: 'seed-oauth-token-location',
+    companyId: 'K7zNUgbS3nWJ1g31K6nF',
+    locationId: 'tSGR98o9w8c3EWX4KwqY',
+    userType: 'Location',
+    accessToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI2YTBkNjRiZTUzODBhZjI3OWIwZDIyMDkiLCJhdXRoQ2xhc3MiOiJMb2NhdGlvbiIsImF1dGhDbGFzc0lkIjoidFNHUjk4bzl3OGMzRVdYNEt3cVkiLCJzb3VyY2UiOiJJTlRFR1JBVElPTiIsInNvdXJjZUlkIjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljLW1vOGVzdHQ3IiwiY2hhbm5lbCI6Ik9BVVRIIiwicHJpbWFyeUF1dGhDbGFzc0lkIjoidFNHUjk4bzl3OGMzRVdYNEt3cVkiLCJvYXV0aE1ldGEiOnsic2NvcGVzIjpbImNhbGVuZGFycy5yZWFkb25seSIsImNhbGVuZGFycy53cml0ZSIsImNhbGVuZGFycy9ldmVudHMucmVhZG9ubHkiLCJjYWxlbmRhcnMvZXZlbnRzLndyaXRlIiwiY2FsZW5kYXJzL2dyb3Vwcy5yZWFkb25seSIsImNhbGVuZGFycy9ncm91cHMud3JpdGUiLCJjYWxlbmRhcnMvcmVzb3VyY2VzLnJlYWRvbmx5IiwiY2FsZW5kYXJzL3Jlc291cmNlcy53cml0ZSIsIm9hdXRoLndyaXRlIiwib2F1dGgucmVhZG9ubHkiXSwiY2xpZW50IjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljIiwiY2xpZW50S2V5IjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljLW1vOGVzdHQ3IiwidmVyc2lvbklkIjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljIn0sImlhdCI6MTc3OTI2MjY1NC45MzUsImV4cCI6MTc3OTM0OTA1NC45MzV9.uPL4366mt-DiIPSGJD-BVqXxZBqTVJr_voIuhP8dQSk8v7RbqgOgPeqsoQa_3zUvDPKl0Xfqy6OCMBe9i4VYiMjHtfMt6LQV9DuM_96jYdDPcnvzMasFh6A-sS-C3w8rqAnmJCIcQRw-vQHsvNH5ChNknBAFwE4Ddoc3sZ8STNJOKjgjyzKcm5d_CnP66yso6Mb9CDSKToUQNOHGm1rFZr09UUmHuTcHg8Zrxr_drZcCHRV7TqcnOtPAXOcQdnlFsVyap8Jaqizn6RHyhD6MXN66CGkC7OCa_3f1qKHqTVGm9uRKgXwgOP_g0GVClrJsy5psuHFCBwzZxQVVupyrRukC12oNwG1wcwdCPZdkMehiePFbY-vpvuZMxctRAP5AG54VUEfbODlyvvzjLFbkdbFsQLqJcY3FIu69SmxaScx7NM63BBUOQkmji52bOzs48584_GkuVaw8HYd0w14bqSvAV5mZ-Rh016w_511YXERTGtBLWFRQY8wZSnvnBpCCYKFhGpGQmoN05QqOKD_HFLcsXWXnby3zKREc5I8kUOxZzb_2o8L7QSJT-3UK_bFwzN5yMqGx9BGhDT8RgP9N2mLVep5Vblel6mU7VGrYDtphn-rIrPqIEAeYKT4RmYJ2Sm36RRGm1eXIjWFQVpmUWy5dg-L0_CvbNEphGfB8jC0',
+    accessTokenExpiresAt: new Date(Date.now() + 86400 * 1000),
+    refreshToken: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdXRoQ2xhc3MiOiJMb2NhdGlvbiIsImF1dGhDbGFzc0lkIjoidFNHUjk4bzl3OGMzRVdYNEt3cVkiLCJzb3VyY2UiOiJJTlRFR1JBVElPTiIsInNvdXJjZUlkIjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljLW1vOGVzdHQ3IiwiY2hhbm5lbCI6Ik9BVVRIIiwicHJpbWFyeUF1dGhDbGFzc0lkIjoidFNHUjk4bzl3OGMzRVdYNEt3cVkiLCJvYXV0aE1ldGEiOnsic2NvcGVzIjpbImNhbGVuZGFycy5yZWFkb25seSIsImNhbGVuZGFycy53cml0ZSIsImNhbGVuZGFycy9ldmVudHMucmVhZG9ubHkiLCJjYWxlbmRhcnMvZXZlbnRzLndyaXRlIiwiY2FsZW5kYXJzL2dyb3Vwcy5yZWFkb25seSIsImNhbGVuZGFycy9ncm91cHMud3JpdGUiLCJjYWxlbmRhcnMvcmVzb3VyY2VzLnJlYWRvbmx5IiwiY2FsZW5kYXJzL3Jlc291cmNlcy53cml0ZSIsIm9hdXRoLndyaXRlIiwib2F1dGgucmVhZG9ubHkiXSwiY2xpZW50IjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljIiwiY2xpZW50S2V5IjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljLW1vOGVzdHQ3IiwidmVyc2lvbklkIjoiNjllNzM3OGYyZWYzNjUzYzE5ZGVjNDljIn0sImlhdCI6MTc3OTI2MjY1NC45MjMsImV4cCI6MTgxMDc5ODY1NC45MjMsInVuaXF1ZUlkIjoiN2EwMTdlYjYtNjg1OC00Y2MxLTg2ZmEtODU2YWU1ZDBmNzQ4IiwidiI6IjIifQ.exdbiiSSMboK3pwRWmrW_jA9VzQW9_Nf_Oi2QmAqiNKIn7X7eELg6-ITXVJ8I8JQzWkk_R6CUMHwLLEmUzFhW1EoEXj0f3NGZGgJJo1VlDLNNf3YrLH7sb4WEt3wmXjf5xcTICoW9B2dI9KYRMBaS2FUR7XiUJ4of-dEmq0J7fWo5RJqgkg1kz3jB1sdSVLE5hrHNvtSI8ZfGZ_u6R1lqoAOfWfFC92w-ZsNvH2fPHkvkL4otwuqvlQe3NeIrhZqUX5SSDEtJj04SIJFP_byyEQL2GZVyOdaGG6DOeNHq23QIk7G4xGxxKCaXjdkPqsBra5SjDOjn9Dg-zKTzLqsWUlP7Kj00z8ph74ew35pPxINry9PVkMMN2T2WYxVirGmEHeRnKQnyLPtWl0okaX8vEaYcVyDCYjxknUv7f0L93X-Rj_ddE53lQJDfKzXEiLxQmiClcVniH6ChaQ1fzuV3xWLk3nZrXbSHCdW24zgbpDK_ZKSh8I0zEuB4YFOvyzfF6PHcPo3KYy4knD6H25TyilPtQszEbrIpIjvnWYSNFr_cD8ERsWXpNCsOBSbJ94sVdvI4Lp_yxZKgnKlD7y3Ju1Ipp2vp3axVwllHZCjGE0id32KdN_PHmkt2VaMoAP5dwwOyQY7b5PLvQY57l0uB4Km44Ka-ECqIbQqHnCYmOg',
+    tokenType: 'Bearer',
+    scope: 'calendars.readonly calendars.write calendars/events.readonly calendars/events.write calendars/groups.readonly calendars/groups.write calendars/resources.readonly calendars/resources.write oauth.write oauth.readonly',
+    userId: 'dSrFYytz0NhjXC9LvJEN',
+  };
+
+  await prisma.ghlOAuthToken.create({ data: agencyToken });
+  await prisma.ghlOAuthToken.create({ data: locationToken });
+
+  console.log('  ✔ 2 GHL OAuth tokens (agency Company + location)');
+}
+
+// ---------------------------------------------------------------------------
+// Real data: CareUnit, HealthServices, and Mapping hierarchy
+// ---------------------------------------------------------------------------
+async function seedRealCareUnit() {
+  await prisma.careUnit.upsert({
+    where: { id: LEYR.careUnit.id },
+    update: { name: LEYR.careUnit.name },
+    create: {
+      id: LEYR.careUnit.id,
+      emrId: LEYR.careUnit.id,
+      name: LEYR.careUnit.name,
+      address: {},
+      instanceId: 0,
+      instanceName: 'Opus',
     },
-    update: { accessToken: token.accessToken },
-    create: token,
   });
 
-  console.log('  ✔ 1 GHL OAuth token (Stockholm location)');
+  console.log('  ✔ 1 real Leyr care unit');
+}
+
+async function seedRealHealthServices() {
+  for (const svc of LEYR.services) {
+    await prisma.healthService.upsert({
+      where: { id: svc.id },
+      update: { name: svc.name, duration: svc.duration },
+      create: {
+        id: svc.id,
+        emrId: svc.id,
+        name: svc.name,
+        description: svc.description,
+        duration: svc.duration,
+        careUnitId: LEYR.careUnit.id,
+      },
+    });
+  }
+
+  console.log(`  ✔ ${LEYR.services.length} real Leyr healthcare services`);
+}
+
+async function seedFacilityMapping() {
+  const facility = await prisma.facilityMapping.upsert({
+    where: {
+      leyrCareUnitId_leyrEmr: {
+        leyrCareUnitId: LEYR.careUnit.id,
+        leyrEmr: LEYR.emr,
+      },
+    },
+    update: {
+      ghlGroupName: GHL.groupName,
+      leyrCareUnitName: LEYR.careUnit.name,
+    },
+    create: {
+      ghlLocationId: GHL.locationId,
+      ghlGroupId: GHL.groupId,
+      ghlGroupName: GHL.groupName,
+      leyrCareUnitId: LEYR.careUnit.id,
+      leyrEmr: LEYR.emr,
+      leyrCareUnitName: LEYR.careUnit.name,
+    },
+  });
+
+  console.log(`  ✔ 1 facility mapping (id=${facility.id})`);
+  return facility.id;
+}
+
+async function seedCalendarServiceMappings(facilityMappingId: string) {
+  for (const cal of GHL.calendars) {
+    await prisma.calendarServiceMapping.upsert({
+      where: { ghlCalendarId: cal.id },
+      update: {
+        ghlCalendarName: cal.name,
+        leyrServiceName: cal.name,
+      },
+      create: {
+        facilityMappingId,
+        ghlCalendarId: cal.id,
+        ghlCalendarName: cal.name,
+        leyrHealthcareServiceId: cal.leyrServiceId,
+        leyrServiceName: cal.name,
+      },
+    });
+  }
+
+  console.log(`  ✔ ${GHL.calendars.length} calendar ↔ service mappings`);
 }
 
 async function seedAuditLogs() {
@@ -612,8 +746,13 @@ async function main() {
   await seedLeyrAppointments();
   await seedGhlAppointments();
   await seedAppointmentSyncs();
-  await seedGhlOAuthToken();
   await seedAuditLogs();
+
+  // Real Leyr ↔ GHL mappings
+  await seedRealCareUnit();
+  await seedRealHealthServices();
+  const facilityId = await seedFacilityMapping();
+  await seedCalendarServiceMappings(facilityId);
 
   console.log('\n✅ Seed complete!\n');
 }

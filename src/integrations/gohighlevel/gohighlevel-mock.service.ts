@@ -7,6 +7,7 @@ import { StoreGohighlevelTokenDto } from './dto/store-token.dto';
 import { CreateLocationTokenDto } from './dto/location-token.dto';
 import {
   CreateAppointmentDto,
+  CreateBlockSlotDto,
   DeleteEventDto,
   GetCalendarEventsQueryDto,
   GetCalendarFreeSlotsQueryDto,
@@ -16,6 +17,7 @@ import {
   GohighlevelAccessTokenQueryDto,
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
+  UpdateBlockSlotDto,
 } from './dto/calendars.dto';
 import {
   CreateContactDto,
@@ -633,6 +635,66 @@ export class GohighlevelMockService {
     }
     const cal = MOCK_CALENDARS.find((c) => c.id === calendarId);
     return { calendar: cal ?? null };
+  }
+
+  async createBlockSlot(payload: CreateBlockSlotDto) {
+    const locationId = payload.locationId || MOCK_LOCATION_ID;
+
+    if (!payload.calendarId && !payload.assignedUserId) {
+      throw new HttpException(
+        'Either calendarId or assignedUserId is required',
+        400,
+      );
+    }
+    if (payload.calendarId && payload.assignedUserId) {
+      throw new HttpException(
+        'Only one of calendarId or assignedUserId can be set, not both',
+        400,
+      );
+    }
+    if (!payload.startTime) {
+      throw new HttpException('startTime is required', 400);
+    }
+
+    const id = `ghl-block-mock-${randomUUID().slice(0, 12)}`;
+    const blockSlot: Record<string, unknown> = {
+      id,
+      locationId,
+      title: payload.title ?? 'Blocked',
+      startTime: payload.startTime,
+      endTime:
+        payload.endTime ??
+        new Date(
+          new Date(payload.startTime).getTime() + 60 * 60 * 1000,
+        ).toISOString(),
+      calendarId: payload.calendarId ?? undefined,
+      assignedUserId: payload.assignedUserId ?? undefined,
+    };
+
+    return blockSlot;
+  }
+
+  async updateBlockSlot(eventId: string, payload: UpdateBlockSlotDto) {
+    if (!eventId) {
+      throw new HttpException('Missing eventId', 400);
+    }
+    if (payload.calendarId && payload.assignedUserId) {
+      throw new HttpException(
+        'Only one of calendarId or assignedUserId can be set, not both',
+        400,
+      );
+    }
+
+    const locationId = payload.locationId || MOCK_LOCATION_ID;
+    return {
+      id: eventId,
+      locationId,
+      title: payload.title ?? 'Blocked',
+      startTime: payload.startTime ?? '2026-05-22T12:00:00Z',
+      endTime: payload.endTime ?? '2026-05-22T13:00:00Z',
+      calendarId: payload.calendarId ?? undefined,
+      assignedUserId: payload.assignedUserId ?? undefined,
+    };
   }
 
   async getCalendarFreeSlots(

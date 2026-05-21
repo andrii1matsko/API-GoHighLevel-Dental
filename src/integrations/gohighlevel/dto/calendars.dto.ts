@@ -427,6 +427,97 @@ export class UpdateAppointmentDto {
   endTime?: string;
 }
 
+export class CreateBlockSlotDto {
+  @ApiPropertyOptional({ example: 'ab12dc0ae1234a7898f9ff06d4f69gh' })
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
+
+  @ApiPropertyOptional({ example: 'Lunch Break' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({
+    example: 'CVokAlI8fgw4WYWoCtQz',
+    description: 'Either calendarId or assignedUserId can be set, not both.',
+  })
+  @IsOptional()
+  @IsString()
+  calendarId?: string;
+
+  @ApiPropertyOptional({
+    example: '0007BWpSzSwfiuSl0tR2',
+    description: 'Either calendarId or assignedUserId can be set, not both.',
+  })
+  @IsOptional()
+  @IsString()
+  assignedUserId?: string;
+
+  @ApiProperty({
+    example: 'C2QujeCh8ZnC7al2InWR',
+    description: 'Location Id',
+  })
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
+  @ApiProperty({ example: '2021-06-23T03:30:00+05:30' })
+  @IsString()
+  startTime!: string;
+
+  @ApiPropertyOptional({ example: '2021-06-23T04:30:00+05:30' })
+  @IsOptional()
+  @IsString()
+  endTime?: string;
+}
+
+export class UpdateBlockSlotDto {
+  @ApiPropertyOptional({ example: 'ab12dc0ae1234a7898f9ff06d4f69gh' })
+  @IsOptional()
+  @IsString()
+  accessToken?: string;
+
+  @ApiPropertyOptional({ example: 'Lunch Break' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({
+    example: 'CVokAlI8fgw4WYWoCtQz',
+    description: 'Either calendarId or assignedUserId can be set, not both.',
+  })
+  @IsOptional()
+  @IsString()
+  calendarId?: string;
+
+  @ApiPropertyOptional({
+    example: '0007BWpSzSwfiuSl0tR2',
+    description: 'Either calendarId or assignedUserId can be set, not both.',
+  })
+  @IsOptional()
+  @IsString()
+  assignedUserId?: string;
+
+  @ApiPropertyOptional({
+    example: 'C2QujeCh8ZnC7al2InWR',
+    description: 'Location Id',
+  })
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
+  @ApiPropertyOptional({ example: '2021-06-23T03:30:00+05:30' })
+  @IsOptional()
+  @IsString()
+  startTime?: string;
+
+  @ApiPropertyOptional({ example: '2021-06-23T04:30:00+05:30' })
+  @IsOptional()
+  @IsString()
+  endTime?: string;
+}
+
 export class DeleteEventDto {
   @ApiPropertyOptional({
     example: 'ab12dc0ae1234a7898f9ff06d4f69gh',

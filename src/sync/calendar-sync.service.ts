@@ -15,6 +15,7 @@ import {
   mapGhlStatusToLeyr,
 } from './appointment-mapper';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
+import { CreateBlockSlotDto } from '../integrations/gohighlevel/dto/calendars.dto';
 
 const MAX_RETRIES = 5;
 
@@ -338,6 +339,83 @@ export class CalendarSyncService {
   }
 
   // ---------------------------------------------------------------------------
+  // Block Slot helpers
+  // ---------------------------------------------------------------------------
+
+  private async createGhlBlockSlot(opts: {
+    calendarId: string;
+    locationId: string;
+    assignedUserId?: string | null;
+    startTime: string;
+    endTime: string;
+    title?: string;
+  }): Promise<string | null> {
+    const payload: CreateBlockSlotDto = {
+      calendarId: opts.assignedUserId ? undefined : opts.calendarId,
+      assignedUserId: opts.assignedUserId || undefined,
+      locationId: opts.locationId,
+      startTime: opts.startTime,
+      endTime: opts.endTime,
+      title: opts.title ?? 'Blocked (synced appointment)',
+    };
+
+    try {
+      const res = (await this.gohighlevelService.createBlockSlot(
+        payload,
+      )) as Record<string, unknown>;
+      const slotId = res?.id ? String(res.id) : null;
+      if (slotId) {
+        this.logger.log(`Created GHL block slot ${slotId}`);
+      }
+      return slotId;
+    } catch (err) {
+      this.logger.warn(
+        `Block slot creation failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
+    }
+  }
+
+  private async updateGhlBlockSlot(
+    blockSlotId: string,
+    opts: {
+      calendarId?: string;
+      locationId?: string;
+      assignedUserId?: string | null;
+      startTime?: string;
+      endTime?: string;
+      title?: string;
+    },
+  ): Promise<void> {
+    try {
+      await this.gohighlevelService.updateBlockSlot(blockSlotId, {
+        calendarId: opts.assignedUserId ? undefined : opts.calendarId,
+        assignedUserId: opts.assignedUserId || undefined,
+        locationId: opts.locationId,
+        startTime: opts.startTime,
+        endTime: opts.endTime,
+        title: opts.title,
+      });
+      this.logger.log(`Updated GHL block slot ${blockSlotId}`);
+    } catch (err) {
+      this.logger.warn(
+        `Block slot update failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  private async deleteGhlBlockSlot(blockSlotId: string): Promise<void> {
+    try {
+      await this.gohighlevelService.deleteEvent(blockSlotId, {});
+      this.logger.log(`Deleted GHL block slot ${blockSlotId}`);
+    } catch (err) {
+      this.logger.warn(
+        `Block slot deletion failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // GHL → Leyr
   // ---------------------------------------------------------------------------
 
@@ -427,7 +505,17 @@ export class CalendarSyncService {
       return false;
     }
 
-    // 5. Create link + mark success atomically
+    // 5. Create a GHL block slot for this appointment's time window
+    const blockSlotId = await this.createGhlBlockSlot({
+      calendarId: row.ghlAppointment.calendarId,
+      locationId: row.ghlAppointment.locationId,
+      assignedUserId: row.ghlAppointment.assignedUserId,
+      startTime: row.ghlAppointment.startAt!.toISOString(),
+      endTime: row.ghlAppointment.endAt!.toISOString(),
+      title: row.ghlAppointment.title ?? 'Blocked (synced appointment)',
+    });
+
+    // 6. Create link + mark success atomically
     const leyrDb = await this.prismaService.leyrAppointment.findUnique({
       where: { leyrAppointmentId: leyrId },
       select: { id: true },
@@ -444,6 +532,7 @@ export class CalendarSyncService {
           leyrAppointmentId: leyrId,
           leyrEmr: mapped.emr,
           leyrCareUnitId: mapped.careUnitId,
+          ghlBlockSlotId: blockSlotId,
           lastSyncDirection: 'GHL_TO_LEYR',
           lastSyncedAt: new Date(),
           echoGuardUntil,
@@ -462,7 +551,7 @@ export class CalendarSyncService {
     ]);
 
     this.logger.log(
-      `Synced GHL ${row.ghlAppointment.ghlAppointmentId} → Leyr ${leyrId}`,
+      `Synced GHL ${row.ghlAppointment.ghlAppointmentId} → Leyr ${leyrId} (block slot: ${blockSlotId ?? 'none'})`,
     );
     return true;
   }
@@ -559,7 +648,17 @@ export class CalendarSyncService {
       return false;
     }
 
-    // 5. Create link + mark success atomically
+    // 5. Create a GHL block slot for this appointment's time window
+    const blockSlotId = await this.createGhlBlockSlot({
+      calendarId: ghlTarget.calendarId,
+      locationId: ghlTarget.locationId || identity.ghlLocationId,
+      assignedUserId: ghlTarget.assignedUserId,
+      startTime: row.leyrAppointment.startAt.toISOString(),
+      endTime: row.leyrAppointment.endAt.toISOString(),
+      title: row.leyrAppointment.description ?? 'Blocked (synced appointment)',
+    });
+
+    // 6. Create link + mark success atomically
     const ghlDb = await this.prismaService.ghlAppointment.findUnique({
       where: { ghlAppointmentId: ghlId },
       select: { id: true },
@@ -576,6 +675,7 @@ export class CalendarSyncService {
           leyrAppointmentId: row.leyrAppointment.leyrAppointmentId,
           leyrEmr: row.leyrAppointment.emr,
           leyrCareUnitId: row.leyrAppointment.careUnitId,
+          ghlBlockSlotId: blockSlotId,
           lastSyncDirection: 'LEYR_TO_GHL',
           lastSyncedAt: new Date(),
           echoGuardUntil,
@@ -594,7 +694,7 @@ export class CalendarSyncService {
     ]);
 
     this.logger.log(
-      `Synced Leyr ${row.leyrAppointment.leyrAppointmentId} → GHL ${ghlId}`,
+      `Synced Leyr ${row.leyrAppointment.leyrAppointmentId} → GHL ${ghlId} (block slot: ${blockSlotId ?? 'none'})`,
     );
     return true;
   }
@@ -683,11 +783,33 @@ export class CalendarSyncService {
       select: { id: true },
     });
 
+    // Step 3: update or recreate the GHL block slot
+    let newBlockSlotId = link.ghlBlockSlotId;
+    if (link.ghlBlockSlotId) {
+      await this.updateGhlBlockSlot(link.ghlBlockSlotId, {
+        calendarId: ghlAppointment.calendarId,
+        locationId: ghlAppointment.locationId,
+        assignedUserId: ghlAppointment.assignedUserId,
+        startTime: ghlAppointment.startAt!.toISOString(),
+        endTime: ghlAppointment.endAt!.toISOString(),
+        title: ghlAppointment.title ?? 'Blocked (synced appointment)',
+      });
+    } else {
+      newBlockSlotId = await this.createGhlBlockSlot({
+        calendarId: ghlAppointment.calendarId,
+        locationId: ghlAppointment.locationId,
+        assignedUserId: ghlAppointment.assignedUserId,
+        startTime: ghlAppointment.startAt!.toISOString(),
+        endTime: ghlAppointment.endAt!.toISOString(),
+        title: ghlAppointment.title ?? 'Blocked (synced appointment)',
+      });
+    }
+
     const echoGuardUntil = new Date(
       Date.now() + this.echoGuardSeconds * 1000,
     );
 
-    // Step 3: atomically update the link to point to the new Leyr appointment
+    // Step 4: atomically update the link to point to the new Leyr appointment
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.update({
         where: { id: link.id },
@@ -695,6 +817,7 @@ export class CalendarSyncService {
           leyrAppointmentId: newLeyrId,
           leyrEmr: mapped.emr,
           leyrCareUnitId: mapped.careUnitId,
+          ghlBlockSlotId: newBlockSlotId,
           lastSyncDirection: 'GHL_TO_LEYR',
           lastSyncedAt: new Date(),
           echoGuardUntil,
@@ -756,6 +879,11 @@ export class CalendarSyncService {
     const leyrDb = await this.prismaService.leyrAppointment.findUnique({
       where: { leyrAppointmentId: link.leyrAppointmentId },
     });
+
+    // Delete the associated GHL block slot if one exists
+    if (link.ghlBlockSlotId) {
+      await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
+    }
 
     await this.prismaService.$transaction([
       // Mark the local Leyr appointment as cancelled if we have it
@@ -845,6 +973,30 @@ export class CalendarSyncService {
       updatePayload,
     );
 
+    // Update or create the GHL block slot to match the new times
+    let newBlockSlotId = link.ghlBlockSlotId;
+    if (leyrAppointment.status === 'cancelled' && link.ghlBlockSlotId) {
+      await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
+      newBlockSlotId = null;
+    } else if (link.ghlBlockSlotId) {
+      await this.updateGhlBlockSlot(link.ghlBlockSlotId, {
+        calendarId: ghlTarget.calendarId || undefined,
+        locationId: ghlTarget.locationId || undefined,
+        assignedUserId: ghlTarget.assignedUserId,
+        startTime: leyrAppointment.startAt.toISOString(),
+        endTime: leyrAppointment.endAt.toISOString(),
+      });
+    } else {
+      newBlockSlotId = await this.createGhlBlockSlot({
+        calendarId: ghlTarget.calendarId,
+        locationId: ghlTarget.locationId || '',
+        assignedUserId: ghlTarget.assignedUserId,
+        startTime: leyrAppointment.startAt.toISOString(),
+        endTime: leyrAppointment.endAt.toISOString(),
+        title: leyrAppointment.description ?? 'Blocked (synced appointment)',
+      });
+    }
+
     const echoGuardUntil = new Date(
       Date.now() + this.echoGuardSeconds * 1000,
     );
@@ -853,6 +1005,7 @@ export class CalendarSyncService {
       this.prismaService.appointmentLink.update({
         where: { id: link.id },
         data: {
+          ghlBlockSlotId: newBlockSlotId,
           lastSyncDirection: 'LEYR_TO_GHL',
           lastSyncedAt: new Date(),
           echoGuardUntil,

@@ -27,6 +27,7 @@ import {
 } from './dto/location-token.dto';
 import {
   CreateAppointmentDto,
+  CreateBlockSlotDto,
   DeleteEventDto,
   GetCalendarFreeSlotsQueryDto,
   GetCalendarEventsQueryDto,
@@ -36,6 +37,7 @@ import {
   GohighlevelAccessTokenQueryDto,
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
+  UpdateBlockSlotDto,
 } from './dto/calendars.dto';
 import {
   CreateContactDto,
@@ -355,6 +357,69 @@ export class GohighlevelController {
   })
   getBlockedSlots(@Query() query: GetCalendarEventsQueryDto) {
     return this.gohighlevelService.getBlockedSlots(query);
+  }
+
+  @Post('calendars/events/block-slots')
+  @HttpCode(201)
+  @ApiOperation({
+    summary: 'Create a block slot on a calendar or for a user',
+    description:
+      'Either calendarId or assignedUserId can be set, not both.',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        id: '0TkCdp9PfvLeWKYRRvIz',
+        locationId: 'C2QujeCh8ZnC7al2InWR',
+        title: 'Lunch Break',
+        startTime: '2021-06-23T03:30:00+05:30',
+        endTime: '2021-06-23T04:30:00+05:30',
+        calendarId: 'CVokAlI8fgw4WYWoCtQz',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing required fields or both calendarId and assignedUserId set',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  createBlockSlot(@Body() body: CreateBlockSlotDto) {
+    return this.gohighlevelService.createBlockSlot(body);
+  }
+
+  @Put('calendars/events/block-slots/:eventId')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Update a block slot by ID',
+    description:
+      'Either calendarId or assignedUserId can be set, not both. For recurring events, send masterEventId to modify the original series.',
+  })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        id: '0TkCdp9PfvLeWKYRRvIz',
+        locationId: 'C2QujeCh8ZnC7al2InWR',
+        title: 'Updated Break',
+        startTime: '2021-06-23T03:30:00+05:30',
+        endTime: '2021-06-23T04:30:00+05:30',
+        calendarId: 'CVokAlI8fgw4WYWoCtQz',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Missing eventId or both calendarId and assignedUserId set',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing location access token',
+  })
+  updateBlockSlot(
+    @Param('eventId') eventId: string,
+    @Body() body: UpdateBlockSlotDto,
+  ) {
+    return this.gohighlevelService.updateBlockSlot(eventId, body);
   }
 
   @Get('calendars/:calendarId')

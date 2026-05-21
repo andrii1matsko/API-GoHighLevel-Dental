@@ -11,6 +11,7 @@ import { CreateLocationTokenDto } from './dto/location-token.dto';
 import { StoreGohighlevelTokenDto } from './dto/store-token.dto';
 import {
   CreateAppointmentDto,
+  CreateBlockSlotDto,
   DeleteEventDto,
   GetCalendarEventsQueryDto,
   GetCalendarFreeSlotsQueryDto,
@@ -20,6 +21,7 @@ import {
   GohighlevelAccessTokenQueryDto,
   GohighlevelLocationScopedQueryDto,
   UpdateAppointmentDto,
+  UpdateBlockSlotDto,
 } from './dto/calendars.dto';
 import {
   CreateContactDto,
@@ -1483,6 +1485,123 @@ export class GohighlevelService {
           : axiosError.response?.data ?? 'Failed to fetch GoHighLevel calendar';
 
       this.logger.error('GoHighLevel get calendar by id failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async createBlockSlot(payload: CreateBlockSlotDto) {
+    const locationId = this.resolveLocationId(payload.locationId);
+
+    if (!payload.calendarId && !payload.assignedUserId) {
+      throw new HttpException(
+        'Either calendarId or assignedUserId is required',
+        400,
+      );
+    }
+    if (payload.calendarId && payload.assignedUserId) {
+      throw new HttpException(
+        'Only one of calendarId or assignedUserId can be set, not both',
+        400,
+      );
+    }
+    if (!payload.startTime) {
+      throw new HttpException('startTime is required', 400);
+    }
+
+    const requestPayload: Record<string, unknown> = {
+      locationId,
+      startTime: payload.startTime,
+    };
+    if (payload.title) requestPayload.title = payload.title;
+    if (payload.calendarId) requestPayload.calendarId = payload.calendarId;
+    if (payload.assignedUserId) requestPayload.assignedUserId = payload.assignedUserId;
+    if (payload.endTime) requestPayload.endTime = payload.endTime;
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.post(
+              `${this.baseUrl}/calendars/events/block-slots`,
+              requestPayload,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to create GoHighLevel block slot';
+
+      this.logger.error('GoHighLevel create block slot failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async updateBlockSlot(eventId: string, payload: UpdateBlockSlotDto) {
+    if (!eventId) {
+      throw new HttpException('Missing eventId', 400);
+    }
+
+    const locationId = this.resolveLocationId(payload.locationId);
+
+    if (payload.calendarId && payload.assignedUserId) {
+      throw new HttpException(
+        'Only one of calendarId or assignedUserId can be set, not both',
+        400,
+      );
+    }
+
+    const requestPayload: Record<string, unknown> = {
+      locationId,
+    };
+    if (payload.title !== undefined) requestPayload.title = payload.title;
+    if (payload.calendarId) requestPayload.calendarId = payload.calendarId;
+    if (payload.assignedUserId) requestPayload.assignedUserId = payload.assignedUserId;
+    if (payload.startTime) requestPayload.startTime = payload.startTime;
+    if (payload.endTime) requestPayload.endTime = payload.endTime;
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.put(
+              `${this.baseUrl}/calendars/events/block-slots/${eventId}`,
+              requestPayload,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : axiosError.response?.data ??
+            'Failed to update GoHighLevel block slot';
+
+      this.logger.error('GoHighLevel update block slot failed', details);
       throw new HttpException(details, status);
     }
   }

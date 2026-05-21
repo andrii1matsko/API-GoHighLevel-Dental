@@ -189,6 +189,7 @@ model AppointmentLink {
   leyrAppointmentId String    @unique
   leyrEmr           String
   leyrCareUnitId    String
+  ghlBlockSlotId    String?
   lastSyncDirection String
   lastSyncedAt      DateTime
   echoGuardUntil    DateTime?
