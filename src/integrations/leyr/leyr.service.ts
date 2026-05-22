@@ -103,6 +103,10 @@ export class LeyrService {
   private async post(path: string, payload: unknown): Promise<unknown> {
     this.assertCredentials();
 
+    this.logger.log(
+      `Leyr POST ${path} body: ${JSON.stringify(payload)}`,
+    );
+
     try {
       const response = await firstValueFrom(
         this.httpService.post(`${this.baseUrl}${path}`, payload, {

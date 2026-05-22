@@ -38,6 +38,14 @@ export class CreateLeyrAppointmentDto {
   patient_id!: string;
 
   @ApiPropertyOptional({
+    example: 'L0_64fc933b-a94a-40ef-b00a-bbba40c2076d',
+    description: 'Care unit id (required by some EMRs in the request body)',
+  })
+  @IsOptional()
+  @IsString()
+  care_unit_id?: string;
+
+  @ApiPropertyOptional({
     example: 'Patient requested first available slot',
     nullable: true,
   })

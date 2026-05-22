@@ -44,6 +44,7 @@ export function mapGhlToLeyrPayload(input: GhlToLeyrInput): {
       healthcare_service_id: leyrTarget.healthcareServiceId,
       resource_id: leyrTarget.resourceId,
       patient_id: leyrPatientId,
+      care_unit_id: leyrTarget.careUnitId,
       comment: buildLeyrComment(
         ghlAppointment.title,
         ghlAppointment.ghlAppointmentId,

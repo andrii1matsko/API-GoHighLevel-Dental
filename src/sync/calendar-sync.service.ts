@@ -289,8 +289,18 @@ export class CalendarSyncService {
         }
       } catch (error) {
         failedCount += 1;
-        const message =
+        let message =
           error instanceof Error ? error.message : 'Unknown sync error';
+
+        // Extract detailed response from HttpException (e.g. Leyr validation errors)
+        if (error && typeof error === 'object' && 'getResponse' in error) {
+          try {
+            const resp = (error as { getResponse: () => unknown }).getResponse();
+            const details = typeof resp === 'string' ? resp : JSON.stringify(resp);
+            message = `${message} | Details: ${details}`;
+          } catch { /* ignore serialization errors */ }
+        }
+
         this.logger.warn(`Sync row ${row.id} threw: ${message}`);
         await this.markRowFailed(row.id, message);
       }

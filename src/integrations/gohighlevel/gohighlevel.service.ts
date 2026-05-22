@@ -1352,8 +1352,15 @@ export class GohighlevelService {
             ),
           ),
       );
+      const responseData = response.data as Record<string, unknown>;
+      if (!responseData.startTime && requestPayload.startTime) {
+        responseData.startTime = requestPayload.startTime;
+      }
+      if (!responseData.endTime && requestPayload.endTime) {
+        responseData.endTime = requestPayload.endTime;
+      }
       await this.persistGhlAppointmentAndQueueSync(
-        response.data as Record<string, unknown>,
+        responseData,
         options.enqueueSync ?? true,
         'AppointmentCreate',
       );
