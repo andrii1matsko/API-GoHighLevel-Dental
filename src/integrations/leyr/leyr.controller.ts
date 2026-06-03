@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeyrService } from './leyr.service';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
+import { UpdateLeyrAppointmentDto } from './dto/update-appointment.dto';
 import { CreateLeyrPatientDto } from './dto/create-patient.dto';
 
 @ApiTags('Leyr (Opus Test)')
@@ -160,5 +161,28 @@ export class LeyrController {
     @Body() body: CreateLeyrAppointmentDto,
   ) {
     return this.leyrService.createAppointment(careUnitId, body, emr);
+  }
+
+  @Patch('emrs/:emr/care-units/:careUnitId/appointments/:appointmentId')
+  @ApiOperation({
+    summary: 'Update (patch) an appointment in Leyr',
+    description:
+      'Updates appointment fields. Set status to "cancelled" to cancel. When status is provided, other fields are ignored by Leyr.',
+  })
+  @ApiParam({ name: 'emr', required: true, example: 'opus' })
+  @ApiParam({ name: 'careUnitId', required: true })
+  @ApiParam({ name: 'appointmentId', required: true })
+  updateAppointment(
+    @Param('emr') emr: string,
+    @Param('careUnitId') careUnitId: string,
+    @Param('appointmentId') appointmentId: string,
+    @Body() body: UpdateLeyrAppointmentDto,
+  ) {
+    return this.leyrService.updateAppointment(
+      appointmentId,
+      careUnitId,
+      body,
+      emr,
+    );
   }
 }

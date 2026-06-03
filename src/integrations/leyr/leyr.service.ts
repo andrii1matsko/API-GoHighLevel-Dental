@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
+import { UpdateLeyrAppointmentDto } from './dto/update-appointment.dto';
 import { CreateLeyrPatientDto } from './dto/create-patient.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -126,6 +127,43 @@ export class LeyrService {
 
       this.logger.error(
         `Leyr POST ${path} failed (${status}): ${JSON.stringify(data)}`,
+      );
+
+      throw new HttpException(
+        {
+          message,
+          status,
+          leyr: data ?? null,
+        },
+        status,
+      );
+    }
+  }
+
+  private async patch(path: string, payload: unknown): Promise<unknown> {
+    this.assertCredentials();
+
+    this.logger.log(`Leyr PATCH ${path} body: ${JSON.stringify(payload)}`);
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.patch(`${this.baseUrl}${path}`, payload, {
+          headers: this.getHeaders(),
+        }),
+      );
+
+      return response.data;
+    } catch (error: unknown) {
+      const axiosError = error as AxiosError<Record<string, unknown>>;
+      const status = axiosError.response?.status ?? 500;
+      const data = axiosError.response?.data;
+      const message =
+        typeof data?.detail === 'string'
+          ? data.detail
+          : axiosError.message || 'Leyr API request failed';
+
+      this.logger.error(
+        `Leyr PATCH ${path} failed (${status}): ${JSON.stringify(data)}`,
       );
 
       throw new HttpException(
@@ -268,6 +306,100 @@ export class LeyrService {
       `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/patients`,
       payload,
     );
+  }
+
+  async updateAppointment(
+    appointmentId: string,
+    careUnitId: string,
+    payload: UpdateLeyrAppointmentDto,
+    emr?: string,
+  ) {
+    const resolvedEmr = this.resolveEmr(emr);
+    const response = await this.patch(
+      `/emrs/${resolvedEmr}/care-units/${careUnitId}/appointments/${appointmentId}`,
+      payload,
+    );
+
+    const appointments = Array.isArray(response)
+      ? (response as Array<Record<string, unknown>>)
+      : [];
+    const first = appointments[0];
+
+    if (first && first.id) {
+      const leyrAppointmentId = String(first.id);
+      const parsedStart = first.start ? new Date(String(first.start)) : null;
+      const parsedEnd = first.end ? new Date(String(first.end)) : null;
+
+      await this.prismaService.leyrAppointment.upsert({
+        where: { leyrAppointmentId },
+        create: {
+          leyrAppointmentId,
+          emr: resolvedEmr,
+          emrId: first.emr_id ? String(first.emr_id) : null,
+          careUnitId: String(first.care_unit_id ?? careUnitId),
+          patientId: '',
+          resourceId: payload.resource_id ?? '',
+          healthcareServiceId: payload.healthcare_service_id ?? '',
+          startAt:
+            parsedStart && !Number.isNaN(parsedStart.getTime())
+              ? parsedStart
+              : new Date(),
+          endAt:
+            parsedEnd && !Number.isNaN(parsedEnd.getTime())
+              ? parsedEnd
+              : new Date(),
+          status: first.status ? String(first.status) : null,
+          description: first.description ? String(first.description) : null,
+          comment: first.comment
+            ? String(first.comment)
+            : (payload.comment ?? null),
+          participants: first.participants
+            ? (first.participants as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+          healthcareServices: first.healthcare_services
+            ? (first.healthcare_services as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+          rawPayload: first as Prisma.InputJsonValue,
+        },
+        update: {
+          emr: resolvedEmr,
+          emrId: first.emr_id ? String(first.emr_id) : null,
+          careUnitId: String(first.care_unit_id ?? careUnitId),
+          ...(payload.resource_id !== undefined &&
+            payload.resource_id !== null && {
+              resourceId: payload.resource_id,
+            }),
+          ...(payload.healthcare_service_id !== undefined &&
+            payload.healthcare_service_id !== null && {
+              healthcareServiceId: payload.healthcare_service_id,
+            }),
+          startAt:
+            parsedStart && !Number.isNaN(parsedStart.getTime())
+              ? parsedStart
+              : undefined,
+          endAt:
+            parsedEnd && !Number.isNaN(parsedEnd.getTime())
+              ? parsedEnd
+              : undefined,
+          status: first.status ? String(first.status) : undefined,
+          description: first.description
+            ? String(first.description)
+            : undefined,
+          comment: first.comment
+            ? String(first.comment)
+            : (payload.comment ?? undefined),
+          participants: first.participants
+            ? (first.participants as Prisma.InputJsonValue)
+            : undefined,
+          healthcareServices: first.healthcare_services
+            ? (first.healthcare_services as Prisma.InputJsonValue)
+            : undefined,
+          rawPayload: first as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    return response;
   }
 
   createAppointment(

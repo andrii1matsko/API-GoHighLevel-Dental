@@ -9,7 +9,6 @@ import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 import {
   mapGhlToLeyrPayload,
-  mapGhlUpdateToLeyrCreatePayload,
   mapLeyrToGhlPayload,
   mapLeyrToGhlUpdatePayload,
   mapGhlStatusToLeyr,
@@ -730,7 +729,6 @@ export class CalendarSyncService {
       this.logger.warn(
         `GHL update for ${ghlAppointment.ghlAppointmentId} has no AppointmentLink — treating as new create`,
       );
-      // Re-queue as a create by updating sourceSystem and resetting status
       await this.prismaService.appointmentSync.update({
         where: { id: rowId },
         data: {
@@ -748,12 +746,6 @@ export class CalendarSyncService {
       return false;
     }
 
-    // Resolve identity + service mapping for the new payload
-    const identity = await this.identityResolver.resolveLeyrPatient(
-      ghlAppointment.contactId,
-      ghlAppointment.locationId,
-    );
-
     const leyrTarget = await this.serviceMappingResolver.resolveLeyrTarget(
       ghlAppointment.calendarId,
       ghlAppointment.assignedUserId,
@@ -764,44 +756,39 @@ export class CalendarSyncService {
       return false;
     }
 
-    // Leyr has no update endpoint — cancel + recreate strategy
-    // Step 1: attempt to note the old Leyr appointment as replaced (best-effort)
-    const oldLeyrId = link.leyrAppointmentId;
+    // Use Leyr PATCH endpoint to update the existing appointment
+    const leyrStatus = ghlAppointment.status === 'cancelled'
+      ? 'cancelled'
+      : undefined;
 
-    // Step 2: create replacement appointment in Leyr
-    const mapped = mapGhlUpdateToLeyrCreatePayload({
-      ghlAppointment,
-      leyrPatientId: identity.leyrPatientId,
-      leyrTarget,
-    });
+    await this.leyrService.updateAppointment(
+      link.leyrAppointmentId,
+      leyrTarget.careUnitId,
+      {
+        status: leyrStatus,
+        start: leyrStatus ? undefined : ghlAppointment.startAt.toISOString(),
+        end: leyrStatus ? undefined : ghlAppointment.endAt.toISOString(),
+        healthcare_service_id: leyrStatus ? undefined : leyrTarget.healthcareServiceId,
+        resource_id: leyrStatus ? undefined : leyrTarget.resourceId,
+        comment: leyrStatus
+          ? undefined
+          : (ghlAppointment.title || undefined),
+      },
+      leyrTarget.emr,
+    );
 
-    const response = (await this.leyrService.createAppointment(
-      mapped.careUnitId,
-      mapped.payload,
-      mapped.emr,
-      { enqueueSync: false },
-    )) as Array<Record<string, unknown>>;
-
-    const newLeyrId = response?.[0]?.id ? String(response[0].id) : null;
-    if (!newLeyrId) {
-      await this.markRowFailed(rowId, 'Leyr create (for update) returned no id');
-      return false;
-    }
-
-    const leyrDb = await this.prismaService.leyrAppointment.findUnique({
-      where: { leyrAppointmentId: newLeyrId },
-      select: { id: true },
-    });
-
-    // Step 3: update or recreate the GHL block slot
+    // Update or recreate the GHL block slot
     let newBlockSlotId = link.ghlBlockSlotId;
-    if (link.ghlBlockSlotId) {
+    if (leyrStatus === 'cancelled' && link.ghlBlockSlotId) {
+      await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
+      newBlockSlotId = null;
+    } else if (link.ghlBlockSlotId) {
       await this.updateGhlBlockSlot(link.ghlBlockSlotId, {
         calendarId: ghlAppointment.calendarId,
         locationId: ghlAppointment.locationId,
         assignedUserId: ghlAppointment.assignedUserId,
-        startTime: ghlAppointment.startAt!.toISOString(),
-        endTime: ghlAppointment.endAt!.toISOString(),
+        startTime: ghlAppointment.startAt.toISOString(),
+        endTime: ghlAppointment.endAt.toISOString(),
         title: ghlAppointment.title ?? 'Blocked (synced appointment)',
       });
     } else {
@@ -809,8 +796,8 @@ export class CalendarSyncService {
         calendarId: ghlAppointment.calendarId,
         locationId: ghlAppointment.locationId,
         assignedUserId: ghlAppointment.assignedUserId,
-        startTime: ghlAppointment.startAt!.toISOString(),
-        endTime: ghlAppointment.endAt!.toISOString(),
+        startTime: ghlAppointment.startAt.toISOString(),
+        endTime: ghlAppointment.endAt.toISOString(),
         title: ghlAppointment.title ?? 'Blocked (synced appointment)',
       });
     }
@@ -819,14 +806,10 @@ export class CalendarSyncService {
       Date.now() + this.echoGuardSeconds * 1000,
     );
 
-    // Step 4: atomically update the link to point to the new Leyr appointment
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.update({
         where: { id: link.id },
         data: {
-          leyrAppointmentId: newLeyrId,
-          leyrEmr: mapped.emr,
-          leyrCareUnitId: mapped.careUnitId,
           ghlBlockSlotId: newBlockSlotId,
           lastSyncDirection: 'GHL_TO_LEYR',
           lastSyncedAt: new Date(),
@@ -837,16 +820,15 @@ export class CalendarSyncService {
         where: { id: rowId },
         data: {
           status: 'success',
-          targetExternalId: newLeyrId,
+          targetExternalId: link.leyrAppointmentId,
           syncedAt: new Date(),
           errorMessage: null,
-          leyrAppointmentId: leyrDb?.id ?? null,
         },
       }),
     ]);
 
     this.logger.log(
-      `Updated GHL ${ghlAppointment.ghlAppointmentId}: Leyr ${oldLeyrId} → ${newLeyrId}`,
+      `Updated GHL ${ghlAppointment.ghlAppointmentId} → Leyr ${link.leyrAppointmentId} via PATCH`,
     );
     return true;
   }
@@ -884,19 +866,34 @@ export class CalendarSyncService {
       return true;
     }
 
-    // Leyr has no delete/cancel endpoint. We record the cancellation locally
-    // and update the stored LeyrAppointment status if it exists in our DB.
-    const leyrDb = await this.prismaService.leyrAppointment.findUnique({
-      where: { leyrAppointmentId: link.leyrAppointmentId },
-    });
+    // Cancel the Leyr appointment via PATCH status=cancelled
+    try {
+      await this.leyrService.updateAppointment(
+        link.leyrAppointmentId,
+        link.leyrCareUnitId,
+        { status: 'cancelled' },
+        link.leyrEmr,
+      );
+      this.logger.log(
+        `Cancelled Leyr appointment ${link.leyrAppointmentId} via PATCH`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Leyr cancel failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+      );
+    }
 
     // Delete the associated GHL block slot if one exists
     if (link.ghlBlockSlotId) {
       await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
     }
 
+    // Also update local DB status
+    const leyrDb = await this.prismaService.leyrAppointment.findUnique({
+      where: { leyrAppointmentId: link.leyrAppointmentId },
+    });
+
     await this.prismaService.$transaction([
-      // Mark the local Leyr appointment as cancelled if we have it
       ...(leyrDb
         ? [
             this.prismaService.leyrAppointment.update({
@@ -905,11 +902,9 @@ export class CalendarSyncService {
             }),
           ]
         : []),
-      // Remove the link
       this.prismaService.appointmentLink.delete({
         where: { id: link.id },
       }),
-      // Mark sync row as success
       this.prismaService.appointmentSync.update({
         where: { id: rowId },
         data: {
@@ -922,7 +917,7 @@ export class CalendarSyncService {
     ]);
 
     this.logger.log(
-      `Deleted GHL ${ghlAppointment.ghlAppointmentId} → removed link to Leyr ${link.leyrAppointmentId}`,
+      `Deleted GHL ${ghlAppointment.ghlAppointmentId} → cancelled Leyr ${link.leyrAppointmentId}`,
     );
     return true;
   }
@@ -1005,7 +1000,7 @@ export class CalendarSyncService {
         endTime: leyrAppointment.endAt.toISOString(),
         title: leyrAppointment.description ?? 'Blocked (synced appointment)',
       });
-    }
+    }-
 
     const echoGuardUntil = new Date(
       Date.now() + this.echoGuardSeconds * 1000,
