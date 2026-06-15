@@ -1000,7 +1000,7 @@ export class CalendarSyncService {
         endTime: leyrAppointment.endAt.toISOString(),
         title: leyrAppointment.description ?? 'Blocked (synced appointment)',
       });
-    }-
+    }
 
     const echoGuardUntil = new Date(
       Date.now() + this.echoGuardSeconds * 1000,

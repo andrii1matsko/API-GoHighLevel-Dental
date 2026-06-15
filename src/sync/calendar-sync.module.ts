@@ -3,6 +3,7 @@ import { GohighlevelModule } from '../integrations/gohighlevel/gohighlevel.modul
 import { LeyrModule } from '../integrations/leyr/leyr.module';
 import { CalendarSyncController } from './calendar-sync.controller';
 import { CalendarSyncService } from './calendar-sync.service';
+import { LeyrPollingService } from './leyr-polling.service';
 import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 import { MappingsController } from './mappings.controller';
@@ -12,6 +13,7 @@ import { MappingsController } from './mappings.controller';
   controllers: [CalendarSyncController, MappingsController],
   providers: [
     CalendarSyncService,
+    LeyrPollingService,
     IdentityResolverService,
     ServiceMappingResolverService,
   ],

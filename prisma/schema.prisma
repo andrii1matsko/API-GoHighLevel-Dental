@@ -201,15 +201,17 @@ model AppointmentLink {
 }
 
 model FacilityMapping {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   ghlLocationId    String
   ghlGroupId       String
   ghlGroupName     String?
   leyrCareUnitId   String
   leyrEmr          String
   leyrCareUnitName String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  pollingEnabled   Boolean   @default(true)
+  lastPolledAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   calendarMappings CalendarServiceMapping[]
   staffMappings    StaffResourceMapping[]

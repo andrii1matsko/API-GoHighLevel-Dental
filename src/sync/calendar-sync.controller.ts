@@ -1,18 +1,36 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarSyncService } from './calendar-sync.service';
+import { LeyrPollingService } from './leyr-polling.service';
 import { TriggerSyncDto } from './dto/trigger-sync.dto';
+import { PollLeyrDto } from './dto/poll-leyr.dto';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
 
 @ApiTags('Sync')
 @Controller('sync')
 export class CalendarSyncController {
-  constructor(private readonly calendarSyncService: CalendarSyncService) {}
+  constructor(
+    private readonly calendarSyncService: CalendarSyncService,
+    private readonly leyrPollingService: LeyrPollingService,
+  ) {}
 
   @Post('calendar')
   @ApiOperation({ summary: 'Manually trigger appointment sync' })
   triggerSync(@Body() body: TriggerSyncDto) {
     return this.calendarSyncService.syncAppointments(body.reason ?? 'manual-api');
+  }
+
+  @Post('poll-leyr')
+  @ApiOperation({
+    summary: 'Manually trigger Leyr appointment polling',
+    description:
+      'Polls Leyr for appointment changes. If careUnitId is provided, polls only that clinic. Otherwise polls all enabled clinics.',
+  })
+  pollLeyr(@Body() body: PollLeyrDto) {
+    if (body.careUnitId) {
+      return this.leyrPollingService.pollSingleClinic(body.careUnitId);
+    }
+    return this.leyrPollingService.pollAllClinics('manual-api');
   }
 
   @Get('status')
