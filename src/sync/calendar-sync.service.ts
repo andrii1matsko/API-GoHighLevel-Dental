@@ -613,11 +613,28 @@ export class CalendarSyncService {
       return true;
     }
 
-    // 1. Resolve identity: Leyr patient → GHL contact
+    // 1. Resolve identity: Leyr patient → GHL contact.
+    // Pass the patient participant's name as a fallback in case getPatient
+    // is unavailable/fails for this EMR.
+    const participants = Array.isArray(row.leyrAppointment.participants)
+      ? (row.leyrAppointment.participants as Array<{
+          role?: string;
+          name?: string;
+        }>)
+      : [];
+    const patientName =
+      participants.find((p) => p?.role === 'patient')?.name?.trim() ?? '';
+    const [fallbackFirstName, ...fallbackRest] = patientName.split(/\s+/);
     const identity = await this.identityResolver.resolveGhlContact(
       row.leyrAppointment.patientId,
       row.leyrAppointment.emr,
       row.leyrAppointment.careUnitId,
+      patientName
+        ? {
+            firstName: fallbackFirstName ?? null,
+            lastName: fallbackRest.join(' ') || null,
+          }
+        : undefined,
     );
 
     // 2. Resolve service mapping: Leyr service + resource → GHL targets

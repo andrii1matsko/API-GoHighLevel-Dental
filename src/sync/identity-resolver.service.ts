@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IdentityMapping } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -46,6 +46,7 @@ export class IdentityResolverService {
   private readonly defaultLeyrEmr: string;
   private readonly defaultLeyrCareUnitId: string;
   private readonly defaultGhlLocationId: string;
+  private readonly emrsWithoutPatientSearch: Set<string>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,6 +66,25 @@ export class IdentityResolverService {
         this.config.get<string>('GHL_LOCATION_ID', ''),
       ),
     );
+
+    const emrsWithoutSearch = this.config.get<string>(
+      'LEYR_EMRS_WITHOUT_PATIENT_SEARCH',
+      'opus',
+    );
+    this.emrsWithoutPatientSearch = new Set(
+      emrsWithoutSearch
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+  }
+
+  /**
+   * Some EMRs (e.g. Opus) do not implement GET /patients (search) — the
+   * endpoint returns 501. For those we skip search and create directly.
+   */
+  private supportsPatientSearch(emr: string): boolean {
+    return !this.emrsWithoutPatientSearch.has(emr.toLowerCase());
   }
 
   /**
@@ -111,17 +131,19 @@ export class IdentityResolverService {
       );
     }
 
-    const matchedPatient = await this.findMatchingLeyrPatient(
-      careUnitId,
-      emr,
-      firstName,
-      lastName,
-      dateOfBirth,
-      phone,
-      email,
-    );
-
     let leyrPatientId: string;
+
+    const matchedPatient = this.supportsPatientSearch(emr)
+      ? await this.findMatchingLeyrPatient(
+          careUnitId,
+          emr,
+          firstName,
+          lastName,
+          dateOfBirth,
+          phone,
+          email,
+        )
+      : null;
 
     if (matchedPatient) {
       leyrPatientId = String(matchedPatient.id ?? matchedPatient.emr_id);
@@ -129,6 +151,11 @@ export class IdentityResolverService {
         `Matched GHL contact ${ghlContactId} → existing Leyr patient ${leyrPatientId}`,
       );
     } else {
+      if (!this.supportsPatientSearch(emr)) {
+        this.logger.log(
+          `EMR "${emr}" has no patient search — creating patient directly (idempotent, EHR dedupes)`,
+        );
+      }
       leyrPatientId = await this.createLeyrPatientFromGhlContact(
         careUnitId,
         emr,
@@ -168,6 +195,12 @@ export class IdentityResolverService {
     leyrPatientId: string,
     leyrEmr: string,
     leyrCareUnitId: string,
+    fallback?: {
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+      phone?: string | null;
+    },
   ): Promise<IdentityMapping> {
     const existing = await this.prisma.identityMapping.findUnique({
       where: {
@@ -180,12 +213,30 @@ export class IdentityResolverService {
     });
     if (existing) return existing;
 
-    const patientResponse = await this.leyrService.getPatient(
-      leyrCareUnitId,
-      leyrPatientId,
-      leyrEmr,
-    );
-    const patient = patientResponse as LeyrPatientRecord;
+    let patient: LeyrPatientRecord = {};
+    try {
+      const patientResponse = await this.leyrService.getPatient(
+        leyrCareUnitId,
+        leyrPatientId,
+        leyrEmr,
+      );
+      patient = (patientResponse ?? {}) as LeyrPatientRecord;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (fallback && (fallback.firstName || fallback.lastName)) {
+        this.logger.warn(
+          `getPatient failed for Leyr patient ${leyrPatientId} (${msg}) — using appointment participant data as fallback`,
+        );
+        patient = {
+          first_name: fallback.firstName ?? null,
+          last_name: fallback.lastName ?? null,
+          emails: fallback.email ? [fallback.email] : [],
+          phones: fallback.phone ? [fallback.phone] : [],
+        };
+      } else {
+        throw err;
+      }
+    }
 
     const firstName = patient.first_name ?? null;
     const lastName = patient.last_name ?? null;
@@ -267,12 +318,23 @@ export class IdentityResolverService {
   ): Promise<LeyrPatientRecord | null> {
     if (!firstName && !lastName) return null;
 
-    const results = await this.leyrService.findPatients(
-      careUnitId,
-      firstName ?? undefined,
-      lastName ?? undefined,
-      emr,
-    );
+    let results: unknown;
+    try {
+      results = await this.leyrService.findPatients(
+        careUnitId,
+        firstName ?? undefined,
+        lastName ?? undefined,
+        emr,
+      );
+    } catch (err) {
+      if (err instanceof HttpException && err.getStatus() === 501) {
+        this.logger.warn(
+          `findPatients not implemented for EMR "${emr}" — falling back to create-only`,
+        );
+        return null;
+      }
+      throw err;
+    }
 
     const patients = (
       Array.isArray(results) ? results : []
@@ -344,6 +406,11 @@ export class IdentityResolverService {
     phone: string | null,
     dateOfBirth: string | null,
   ): Promise<string> {
+    // For EMRs that dedupe on their side (e.g. Opus), passing a GHL id as
+    // external_id can defeat that dedupe. Only send external_id when the EMR
+    // supports patient search (where we control matching ourselves).
+    const includeExternalId = this.supportsPatientSearch(emr);
+
     const response = await this.leyrService.createPatient(
       careUnitId,
       {
@@ -352,7 +419,7 @@ export class IdentityResolverService {
         phones: phone ? [phone] : [],
         emails: email ? [email] : [],
         birth_datetime: dateOfBirth,
-        external_id: ghlContactId,
+        ...(includeExternalId ? { external_id: ghlContactId } : {}),
       },
       emr,
     );
