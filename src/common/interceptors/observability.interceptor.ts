@@ -139,7 +139,7 @@ export class ObservabilityInterceptor implements NestInterceptor {
   private buildMetadata(req: RequestWithContext, err?: unknown): unknown {
     const query = sanitizeForAudit(req.query);
     let bodyField: unknown = sanitizeForAudit(req.body);
-    const bodyJson = JSON.stringify(bodyField);
+    const bodyJson = JSON.stringify(bodyField ?? null);
     if (bodyJson.length > 6_000) {
       bodyField = {
         _truncated: true,

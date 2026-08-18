@@ -25,6 +25,13 @@ interface LeyrPatientRecord {
   }>;
 }
 
+interface GhlContactCustomField {
+  id?: string;
+  key?: string;
+  value?: unknown;
+  field_value?: unknown;
+}
+
 interface GhlContactRecord {
   id?: string;
   firstName?: string | null;
@@ -38,6 +45,7 @@ interface GhlContactRecord {
   state?: string | null;
   postalCode?: string | null;
   country?: string | null;
+  customFields?: GhlContactCustomField[];
 }
 
 @Injectable()
@@ -47,6 +55,8 @@ export class IdentityResolverService {
   private readonly defaultLeyrCareUnitId: string;
   private readonly defaultGhlLocationId: string;
   private readonly emrsWithoutPatientSearch: Set<string>;
+  private readonly personnummerFieldId: string;
+  private readonly emrsRequiringPersonnummer: Set<string>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,6 +87,56 @@ export class IdentityResolverService {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
     );
+
+    this.personnummerFieldId = this.config.get<string>(
+      'SYNC_GHL_PERSONNUMMER_FIELD_ID',
+      '',
+    );
+
+    const emrsRequiringPersonnummer = this.config.get<string>(
+      'SYNC_LEYR_EMRS_REQUIRING_PERSONNUMMER',
+      'opus',
+    );
+    this.emrsRequiringPersonnummer = new Set(
+      emrsRequiringPersonnummer
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+  }
+
+  /**
+   * Resolve Leyr care unit + EMR from FacilityMapping for the GHL location,
+   * falling back to env defaults when no mapping exists.
+   */
+  private async resolveCareUnitForLocation(
+    ghlLocationId: string,
+  ): Promise<{ careUnitId: string; emr: string }> {
+    const facility = await this.prisma.facilityMapping.findFirst({
+      where: { ghlLocationId },
+    });
+
+    if (facility) {
+      return {
+        careUnitId: facility.leyrCareUnitId,
+        emr: facility.leyrEmr,
+      };
+    }
+
+    if (!this.defaultLeyrCareUnitId) {
+      throw new Error(
+        `No FacilityMapping for GHL location ${ghlLocationId} and SYNC_LEYR_DEFAULT_CARE_UNIT_ID is not configured — cannot search/create Leyr patients`,
+      );
+    }
+
+    this.logger.warn(
+      `No FacilityMapping for GHL location ${ghlLocationId} — using SYNC_LEYR_DEFAULT_CARE_UNIT_ID`,
+    );
+
+    return {
+      careUnitId: this.defaultLeyrCareUnitId,
+      emr: this.defaultLeyrEmr,
+    };
   }
 
   /**
@@ -122,14 +182,9 @@ export class IdentityResolverService {
       );
     }
 
-    const careUnitId = this.defaultLeyrCareUnitId;
-    const emr = this.defaultLeyrEmr;
-
-    if (!careUnitId) {
-      throw new Error(
-        'SYNC_LEYR_DEFAULT_CARE_UNIT_ID is not configured — cannot search/create Leyr patients',
-      );
-    }
+    const { careUnitId, emr } = await this.resolveCareUnitForLocation(
+      ghlLocationId,
+    );
 
     let leyrPatientId: string;
 
@@ -156,6 +211,8 @@ export class IdentityResolverService {
           `EMR "${emr}" has no patient search — creating patient directly (idempotent, EHR dedupes)`,
         );
       }
+      const personnummer = this.extractPersonnummer(contact);
+
       leyrPatientId = await this.createLeyrPatientFromGhlContact(
         careUnitId,
         emr,
@@ -165,6 +222,7 @@ export class IdentityResolverService {
         email,
         phone,
         dateOfBirth,
+        personnummer,
       );
       this.logger.log(
         `Created new Leyr patient ${leyrPatientId} for GHL contact ${ghlContactId}`,
@@ -396,6 +454,48 @@ export class IdentityResolverService {
     return null;
   }
 
+  private requiresPersonnummer(emr: string): boolean {
+    return this.emrsRequiringPersonnummer.has(emr.toLowerCase());
+  }
+
+  private extractPersonnummer(contact: GhlContactRecord): string | null {
+    const fields = contact.customFields ?? [];
+
+    if (this.personnummerFieldId) {
+      const match = fields.find((f) => f.id === this.personnummerFieldId);
+      const value = this.normalizePersonnummer(
+        match?.value ?? match?.field_value,
+      );
+      if (value) return value;
+    }
+
+    for (const field of fields) {
+      const key = (field.key ?? '').toLowerCase();
+      if (key.includes('personnummer') || key.includes('fødselsnummer')) {
+        const value = this.normalizePersonnummer(
+          field.value ?? field.field_value,
+        );
+        if (value) return value;
+      }
+    }
+
+    for (const field of fields) {
+      const value = this.normalizePersonnummer(
+        field.value ?? field.field_value,
+      );
+      if (value) return value;
+    }
+
+    return null;
+  }
+
+  /** Strip non-digits; accept valid 11-digit Norwegian fødselsnummer. */
+  private normalizePersonnummer(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const digits = String(value).replace(/\D/g, '');
+    return digits.length === 11 ? digits : null;
+  }
+
   private async createLeyrPatientFromGhlContact(
     careUnitId: string,
     emr: string,
@@ -405,11 +505,20 @@ export class IdentityResolverService {
     email: string | null,
     phone: string | null,
     dateOfBirth: string | null,
+    personnummer: string | null,
   ): Promise<string> {
-    // For EMRs that dedupe on their side (e.g. Opus), passing a GHL id as
-    // external_id can defeat that dedupe. Only send external_id when the EMR
-    // supports patient search (where we control matching ourselves).
-    const includeExternalId = this.supportsPatientSearch(emr);
+    let externalId: string | undefined;
+
+    if (this.requiresPersonnummer(emr)) {
+      if (!personnummer) {
+        throw new Error(
+          `GHL contact ${ghlContactId} has no Personnummer — Opus requires a Norwegian fødselsnummer in custom field (configure SYNC_GHL_PERSONNUMMER_FIELD_ID)`,
+        );
+      }
+      externalId = personnummer;
+    } else if (this.supportsPatientSearch(emr)) {
+      externalId = ghlContactId;
+    }
 
     const response = await this.leyrService.createPatient(
       careUnitId,
@@ -419,7 +528,7 @@ export class IdentityResolverService {
         phones: phone ? [phone] : [],
         emails: email ? [email] : [],
         birth_datetime: dateOfBirth,
-        ...(includeExternalId ? { external_id: ghlContactId } : {}),
+        ...(externalId ? { external_id: externalId } : {}),
       },
       emr,
     );
