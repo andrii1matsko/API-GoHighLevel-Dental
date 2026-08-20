@@ -4,6 +4,7 @@ import { GohighlevelController } from './gohighlevel.controller';
 import { PrismaService } from '../../prisma/prisma.service';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { CalendarSyncService } from '../../sync/calendar-sync.service';
 
 function makePrismaStub() {
   return {
@@ -46,6 +47,7 @@ function makeConfigStub() {
     GHL_COMPANY_ID: 'comp-id',
     GHL_LOCATION_ID_OAUTH: 'loc-oauth',
     GHL_LOCATION_ACCESS_TOKEN: '',
+    SYNC_IMMEDIATE_ON_WEBHOOK: 'false',
   };
   return {
     get: jest.fn(
@@ -61,8 +63,12 @@ describe('GoHighLevel Webhook Edge Cases', () => {
 
   beforeEach(() => {
     prisma = makePrismaStub();
-    service = new GohighlevelService(makeHttpStub(), makeConfigStub(), prisma);
-    controller = new GohighlevelController(service);
+    const config = makeConfigStub();
+    service = new GohighlevelService(makeHttpStub(), config, prisma);
+    const calendarSync = {
+      syncAppointments: jest.fn().mockResolvedValue({}),
+    } as unknown as CalendarSyncService;
+    controller = new GohighlevelController(service, calendarSync, config);
   });
 
   describe('duplicate webhook deliveries', () => {

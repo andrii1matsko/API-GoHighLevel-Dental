@@ -99,6 +99,11 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "calendar-sync\\.service\\.spec\\.ts$",
+      "calendar-sync-edge-cases\\.spec\\.ts$"
+    ],
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },

@@ -4,6 +4,8 @@ import { CalendarSyncService } from './calendar-sync.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
 import { LeyrService } from '../integrations/leyr/leyr.service';
+import { IdentityResolverService } from './identity-resolver.service';
+import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 
 describe('CalendarSyncService – Dashboard endpoints', () => {
   let service: CalendarSyncService;
@@ -25,6 +27,8 @@ describe('CalendarSyncService – Dashboard endpoints', () => {
         { provide: PrismaService, useValue: fakePrisma },
         { provide: GohighlevelService, useValue: {} },
         { provide: LeyrService, useValue: {} },
+        { provide: IdentityResolverService, useValue: {} },
+        { provide: ServiceMappingResolverService, useValue: {} },
         {
           provide: ConfigService,
           useValue: {

@@ -4,6 +4,8 @@ import { CalendarSyncService } from './calendar-sync.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
 import { LeyrService } from '../integrations/leyr/leyr.service';
+import { IdentityResolverService } from './identity-resolver.service';
+import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 
 function makePrismaStub() {
   return {
@@ -55,17 +57,49 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
   } as unknown as ConfigService;
 }
 
+function makeIdentityStub() {
+  return {
+    resolveLeyrPatient: jest.fn(),
+    resolveGhlContact: jest.fn(),
+  } as unknown as IdentityResolverService;
+}
+
+function makeServiceMappingStub() {
+  return {
+    resolveForGhlToLeyr: jest.fn().mockResolvedValue({
+      careUnitId: 'cu-stockholm-01',
+      healthcareServiceId: 'hs-001',
+      resourceId: 'res-001',
+    }),
+    resolveForLeyrToGhl: jest.fn().mockResolvedValue({
+      locationId: 'loc-001',
+      calendarId: 'cal-001',
+    }),
+  } as unknown as ServiceMappingResolverService;
+}
+
 function makeService(
   prisma = makePrismaStub(),
   ghl = makeGhlStub(),
   leyr = makeLeyrStub(),
   config = makeConfigStub(),
+  identity = makeIdentityStub(),
+  serviceMapping = makeServiceMappingStub(),
 ) {
   return {
-    service: new CalendarSyncService(prisma, ghl, leyr, config),
+    service: new CalendarSyncService(
+      prisma,
+      ghl,
+      leyr,
+      config,
+      identity,
+      serviceMapping,
+    ),
     prisma,
     ghl,
     leyr,
+    identity,
+    serviceMapping,
   };
 }
 
