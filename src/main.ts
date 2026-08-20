@@ -1,8 +1,8 @@
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { AppValidationPipe } from './common/pipes/app-validation.pipe';
 import { SanitizePipe } from './common/pipes/sanitize.pipe';
 
 async function bootstrap() {
@@ -22,14 +22,7 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(
-    new SanitizePipe(),
-    new ValidationPipe({
-      transform: true,
-      whitelist: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
+  app.useGlobalPipes(new SanitizePipe(), new AppValidationPipe());
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Opus Dental API')

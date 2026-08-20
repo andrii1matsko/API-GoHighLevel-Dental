@@ -100,6 +100,12 @@ class GhlAppointmentWebhookPayloadDto {
   @IsOptional()
   @IsString()
   dateUpdated?: string;
+
+  @ApiPropertyOptional({ description: 'IANA timezone sent by some GHL calendar payloads' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timezone?: string;
 }
 
 export class GhlAppointmentCreateWebhookDto {
@@ -114,6 +120,17 @@ export class GhlAppointmentCreateWebhookDto {
   @IsNotEmpty()
   @MaxLength(128)
   locationId!: string;
+
+  @ApiPropertyOptional({ description: 'Webhook delivery timestamp from GHL' })
+  @IsOptional()
+  @IsString()
+  timestamp?: string;
+
+  @ApiPropertyOptional({ description: 'Webhook event id from GHL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  id?: string;
 
   @ApiProperty({ type: GhlAppointmentWebhookPayloadDto })
   @IsObject()
