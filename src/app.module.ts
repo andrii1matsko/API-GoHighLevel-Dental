@@ -1,4 +1,9 @@
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -25,7 +30,7 @@ import { CorrelationIdMiddleware } from './common/middleware/correlation-id.midd
         throttlers: [
           {
             name: 'short',
-            ttl: (config.get<number>('THROTTLE_TTL_SECONDS', 60)) * 1000,
+            ttl: config.get<number>('THROTTLE_TTL_SECONDS', 60) * 1000,
             limit: config.get<number>('THROTTLE_LIMIT', 60),
           },
           {

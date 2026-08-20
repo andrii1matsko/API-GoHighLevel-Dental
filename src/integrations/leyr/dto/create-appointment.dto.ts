@@ -53,4 +53,3 @@ export class CreateLeyrAppointmentDto {
   @IsString()
   comment?: string | null;
 }
-

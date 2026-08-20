@@ -90,8 +90,12 @@ export class GohighlevelController {
     summary: 'Exchange refresh token for a new GoHighLevel access token',
   })
   @ApiOkResponse({ type: GohighlevelTokenResponseDto })
-  @ApiBadRequestResponse({ description: 'Invalid refresh token request payload' })
-  @ApiUnauthorizedResponse({ description: 'Invalid client credentials or token' })
+  @ApiBadRequestResponse({
+    description: 'Invalid refresh token request payload',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid client credentials or token',
+  })
   @ApiUnprocessableEntityResponse({
     description: 'Upstream request validated but cannot be processed',
   })
@@ -138,7 +142,9 @@ export class GohighlevelController {
   @Post('contacts')
   @HttpCode(201)
   @ApiOperation({ summary: 'Create a new contact' })
-  @ApiBadRequestResponse({ description: 'Missing locationId or invalid payload' })
+  @ApiBadRequestResponse({
+    description: 'Missing locationId or invalid payload',
+  })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing location access token',
   })
@@ -161,7 +167,9 @@ export class GohighlevelController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Missing locationId or invalid filters' })
+  @ApiBadRequestResponse({
+    description: 'Missing locationId or invalid filters',
+  })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing location access token',
   })
@@ -304,7 +312,9 @@ export class GohighlevelController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Missing locationId or invalid filters' })
+  @ApiBadRequestResponse({
+    description: 'Missing locationId or invalid filters',
+  })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing location access token',
   })
@@ -330,7 +340,9 @@ export class GohighlevelController {
   }
 
   @Get('calendars/events')
-  @ApiOperation({ summary: 'Get calendar events by time range and owner filter' })
+  @ApiOperation({
+    summary: 'Get calendar events by time range and owner filter',
+  })
   @ApiOkResponse({
     schema: {
       example: {
@@ -393,8 +405,7 @@ export class GohighlevelController {
   @HttpCode(201)
   @ApiOperation({
     summary: 'Create a block slot on a calendar or for a user',
-    description:
-      'Either calendarId or assignedUserId can be set, not both.',
+    description: 'Either calendarId or assignedUserId can be set, not both.',
   })
   @ApiOkResponse({
     schema: {
@@ -439,8 +450,7 @@ export class GohighlevelController {
     },
   })
   @ApiBadRequestResponse({
-    description:
-      'Missing eventId or both calendarId and assignedUserId set',
+    description: 'Missing eventId or both calendarId and assignedUserId set',
   })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing location access token',
@@ -461,7 +471,9 @@ export class GohighlevelController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Missing calendarId or invalid request' })
+  @ApiBadRequestResponse({
+    description: 'Missing calendarId or invalid request',
+  })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing location access token',
   })
@@ -539,14 +551,15 @@ export class GohighlevelController {
       return { accepted: false, reason: 'Wrong webhook type for endpoint' };
     }
 
-    const result = await this.gohighlevelService.ingestAppointmentMutationWebhook(
-      {
-        locationId: body.locationId,
-        appointment: body.appointment as unknown as Record<string, unknown>,
-      },
-      'AppointmentDelete',
-      { enqueueSync: true },
-    );
+    const result =
+      await this.gohighlevelService.ingestAppointmentMutationWebhook(
+        {
+          locationId: body.locationId,
+          appointment: body.appointment as unknown as Record<string, unknown>,
+        },
+        'AppointmentDelete',
+        { enqueueSync: true },
+      );
     this.triggerImmediateSyncIfEnabled(result.queuedSync);
     return result;
   }
@@ -563,14 +576,15 @@ export class GohighlevelController {
       return { accepted: false, reason: 'Wrong webhook type for endpoint' };
     }
 
-    const result = await this.gohighlevelService.ingestAppointmentMutationWebhook(
-      {
-        locationId: body.locationId,
-        appointment: body.appointment as unknown as Record<string, unknown>,
-      },
-      'AppointmentUpdate',
-      { enqueueSync: true },
-    );
+    const result =
+      await this.gohighlevelService.ingestAppointmentMutationWebhook(
+        {
+          locationId: body.locationId,
+          appointment: body.appointment as unknown as Record<string, unknown>,
+        },
+        'AppointmentUpdate',
+        { enqueueSync: true },
+      );
     this.triggerImmediateSyncIfEnabled(result.queuedSync);
     return result;
   }
@@ -587,7 +601,9 @@ export class GohighlevelController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Missing eventId or invalid request body' })
+  @ApiBadRequestResponse({
+    description: 'Missing eventId or invalid request body',
+  })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing location access token',
   })

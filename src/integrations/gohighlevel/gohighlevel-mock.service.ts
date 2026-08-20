@@ -168,7 +168,9 @@ function generateFreeSlots(
 }
 
 function makeMockJwt(expiresIn: number): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'JWT' }),
+  ).toString('base64url');
   const payload = Buffer.from(
     JSON.stringify({
       sub: 'mock-user',
@@ -324,7 +326,8 @@ export class GohighlevelMockService {
       token_type: 'Bearer',
       expires_in: 86399,
       refresh_token: `mock-refresh-${randomUUID().slice(0, 12)}`,
-      scope: 'calendars.readonly calendars.write contacts.readonly contacts.write',
+      scope:
+        'calendars.readonly calendars.write contacts.readonly contacts.write',
       userType: 'Location',
       locationId: MOCK_LOCATION_ID,
       companyId: MOCK_COMPANY_ID,
@@ -464,7 +467,10 @@ export class GohighlevelMockService {
       locationId,
       firstName: payload.firstName ?? null,
       lastName: payload.lastName ?? null,
-      name: payload.name ?? ([payload.firstName, payload.lastName].filter(Boolean).join(' ') || null),
+      name:
+        payload.name ??
+        ([payload.firstName, payload.lastName].filter(Boolean).join(' ') ||
+          null),
       email: payload.email ?? null,
       phone: payload.phone ?? null,
       gender: payload.gender ?? null,
@@ -520,10 +526,18 @@ export class GohighlevelMockService {
       const q = payload.query.toLowerCase();
       results = results.filter(
         (c) =>
-          String(c.firstName ?? '').toLowerCase().includes(q) ||
-          String(c.lastName ?? '').toLowerCase().includes(q) ||
-          String(c.name ?? '').toLowerCase().includes(q) ||
-          String(c.email ?? '').toLowerCase().includes(q),
+          String(c.firstName ?? '')
+            .toLowerCase()
+            .includes(q) ||
+          String(c.lastName ?? '')
+            .toLowerCase()
+            .includes(q) ||
+          String(c.name ?? '')
+            .toLowerCase()
+            .includes(q) ||
+          String(c.email ?? '')
+            .toLowerCase()
+            .includes(q),
       );
     }
 
@@ -705,7 +719,10 @@ export class GohighlevelMockService {
       throw new HttpException('Missing calendarId', 400);
     }
     if (!Number.isFinite(query.startDate) || !Number.isFinite(query.endDate)) {
-      throw new HttpException('startDate and endDate are required numbers', 400);
+      throw new HttpException(
+        'startDate and endDate are required numbers',
+        400,
+      );
     }
     if (query.endDate < query.startDate) {
       throw new HttpException('endDate must be greater than startDate', 400);

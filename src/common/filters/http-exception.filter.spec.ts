@@ -8,7 +8,10 @@ describe('AllExceptionsFilter', () => {
     get: jest.fn().mockReturnValue(undefined),
   } as unknown as ConfigService;
 
-  const createHost = (req: Record<string, unknown>, res: Record<string, unknown>) =>
+  const createHost = (
+    req: Record<string, unknown>,
+    res: Record<string, unknown>,
+  ) =>
     ({
       getType: () => 'http',
       switchToHttp: () => ({

@@ -227,7 +227,16 @@ export class CreateAppointmentDto {
 
   @ApiPropertyOptional({
     example: 'confirmed',
-    enum: ['new', 'confirmed', 'cancelled', 'showed', 'noshow', 'invalid', 'completed', 'active'],
+    enum: [
+      'new',
+      'confirmed',
+      'cancelled',
+      'showed',
+      'noshow',
+      'invalid',
+      'completed',
+      'active',
+    ],
   })
   @IsOptional()
   @IsString()
@@ -352,7 +361,16 @@ export class UpdateAppointmentDto {
 
   @ApiPropertyOptional({
     example: 'confirmed',
-    enum: ['new', 'confirmed', 'cancelled', 'showed', 'noshow', 'invalid', 'completed', 'active'],
+    enum: [
+      'new',
+      'confirmed',
+      'cancelled',
+      'showed',
+      'noshow',
+      'invalid',
+      'completed',
+      'active',
+    ],
   })
   @IsOptional()
   @IsString()

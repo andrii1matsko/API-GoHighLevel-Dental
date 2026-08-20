@@ -137,14 +137,12 @@ export class LeyrPollingService {
     return this.pollClinic(facility);
   }
 
-  private async pollClinic(
-    facility: {
-      id: string;
-      leyrCareUnitId: string;
-      leyrEmr: string;
-      lastPolledAt: Date | null;
-    },
-  ): Promise<PollResult> {
+  private async pollClinic(facility: {
+    id: string;
+    leyrCareUnitId: string;
+    leyrEmr: string;
+    lastPolledAt: Date | null;
+  }): Promise<PollResult> {
     const now = new Date();
     const result: PollResult = {
       facilityId: facility.id,
@@ -191,7 +189,9 @@ export class LeyrPollingService {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         result.errors.push(`${appt.id}: ${msg}`);
-        this.logger.warn(`Error processing polled appointment ${appt.id}: ${msg}`);
+        this.logger.warn(
+          `Error processing polled appointment ${appt.id}: ${msg}`,
+        );
       }
     }
 
@@ -202,8 +202,8 @@ export class LeyrPollingService {
 
     this.logger.log(
       `Poll complete for ${facility.leyrCareUnitId}: ` +
-      `${result.created} new, ${result.updated} updated, ${result.cancelled} cancelled, ` +
-      `${result.skippedEchoGuard} echo-guarded, ${result.skippedUnchanged} unchanged`,
+        `${result.created} new, ${result.updated} updated, ${result.cancelled} cancelled, ` +
+        `${result.skippedEchoGuard} echo-guarded, ${result.skippedUnchanged} unchanged`,
     );
 
     return result;
@@ -271,10 +271,7 @@ export class LeyrPollingService {
     }
 
     // Check for cancellation
-    if (
-      status === 'cancelled' &&
-      existing.status !== 'cancelled'
-    ) {
+    if (status === 'cancelled' && existing.status !== 'cancelled') {
       await this.prisma.leyrAppointment.update({
         where: { id: existing.id },
         data: {
@@ -292,7 +289,17 @@ export class LeyrPollingService {
     }
 
     // Check for changes (reschedule, resource change, etc.)
-    if (this.hasChanged(existing, appt, parsedStart, parsedEnd, resourceId, healthcareServiceId, status)) {
+    if (
+      this.hasChanged(
+        existing,
+        appt,
+        parsedStart,
+        parsedEnd,
+        resourceId,
+        healthcareServiceId,
+        status,
+      )
+    ) {
       await this.upsertLeyrAppointment(
         leyrAppointmentId,
         appt,

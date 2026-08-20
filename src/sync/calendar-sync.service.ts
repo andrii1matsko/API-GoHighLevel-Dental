@@ -49,8 +49,12 @@ export class CalendarSyncService {
 
   async getSyncStatus() {
     const [pending, success, failed, total] = await Promise.all([
-      this.prismaService.appointmentSync.count({ where: { status: 'pending' } }),
-      this.prismaService.appointmentSync.count({ where: { status: 'success' } }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'pending' },
+      }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'success' },
+      }),
       this.prismaService.appointmentSync.count({ where: { status: 'failed' } }),
       this.prismaService.appointmentSync.count(),
     ]);
@@ -60,10 +64,7 @@ export class CalendarSyncService {
       _count: true,
     });
 
-    const directionBreakdown: Record<
-      string,
-      Record<string, number>
-    > = {};
+    const directionBreakdown: Record<string, Record<string, number>> = {};
     for (const row of byDirection) {
       directionBreakdown[row.direction] ??= {};
       directionBreakdown[row.direction][row.status] = row._count;
@@ -87,7 +88,8 @@ export class CalendarSyncService {
     const where: Prisma.AppointmentSyncWhereInput = {};
     if (query.status) where.status = query.status;
     if (query.direction) where.direction = query.direction;
-    if (query.sourceSystem) where.sourceSystem = { contains: query.sourceSystem };
+    if (query.sourceSystem)
+      where.sourceSystem = { contains: query.sourceSystem };
     if (query.from || query.to) {
       where.createdAt = {};
       if (query.from) where.createdAt.gte = new Date(query.from);
@@ -151,9 +153,13 @@ export class CalendarSyncService {
       recentFailures,
     ] = await Promise.all([
       this.prismaService.appointmentSync.count(),
-      this.prismaService.appointmentSync.count({ where: { status: 'success' } }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'success' },
+      }),
       this.prismaService.appointmentSync.count({ where: { status: 'failed' } }),
-      this.prismaService.appointmentSync.count({ where: { status: 'pending' } }),
+      this.prismaService.appointmentSync.count({
+        where: { status: 'pending' },
+      }),
       this.prismaService.appointmentSync.count({
         where: { createdAt: { gte: oneHourAgo } },
       }),
@@ -214,7 +220,12 @@ export class CalendarSyncService {
       : null;
 
     return {
-      status: failedAll === 0 && pendingAll < 50 ? 'healthy' : pendingAll >= 50 ? 'degraded' : 'warning',
+      status:
+        failedAll === 0 && pendingAll < 50
+          ? 'healthy'
+          : pendingAll >= 50
+            ? 'degraded'
+            : 'warning',
       allTime: {
         total: totalAll,
         success: successAll,
@@ -235,12 +246,13 @@ export class CalendarSyncService {
         successRate: last24hSuccessRate,
       },
       lastSuccessfulSync: lastSync?.syncedAt?.toISOString() ?? null,
-      oldestPendingAge: pendingAgeMs !== null
-        ? {
-            ms: pendingAgeMs,
-            human: humanizeDuration(pendingAgeMs),
-          }
-        : null,
+      oldestPendingAge:
+        pendingAgeMs !== null
+          ? {
+              ms: pendingAgeMs,
+              human: humanizeDuration(pendingAgeMs),
+            }
+          : null,
       recentFailures,
       queriedAt: now.toISOString(),
     };
@@ -251,10 +263,7 @@ export class CalendarSyncService {
     const pendingRows = await this.prismaService.appointmentSync.findMany({
       where: {
         status: 'pending',
-        OR: [
-          { nextRetryAfter: null },
-          { nextRetryAfter: { lte: now } },
-        ],
+        OR: [{ nextRetryAfter: null }, { nextRetryAfter: { lte: now } }],
       },
       orderBy: { createdAt: 'asc' },
       take: 30,
@@ -294,10 +303,15 @@ export class CalendarSyncService {
         // Extract detailed response from HttpException (e.g. Leyr validation errors)
         if (error && typeof error === 'object' && 'getResponse' in error) {
           try {
-            const resp = (error as { getResponse: () => unknown }).getResponse();
-            const details = typeof resp === 'string' ? resp : JSON.stringify(resp);
+            const resp = (
+              error as { getResponse: () => unknown }
+            ).getResponse();
+            const details =
+              typeof resp === 'string' ? resp : JSON.stringify(resp);
             message = `${message} | Details: ${details}`;
-          } catch { /* ignore serialization errors */ }
+          } catch {
+            /* ignore serialization errors */
+          }
         }
 
         this.logger.warn(`Sync row ${row.id} threw: ${message}`);
@@ -334,9 +348,7 @@ export class CalendarSyncService {
         status: isDeadLetter ? 'dead_letter' : 'failed',
         errorMessage,
         retryCount: newRetryCount,
-        nextRetryAfter: isDeadLetter
-          ? null
-          : new Date(Date.now() + backoffMs),
+        nextRetryAfter: isDeadLetter ? null : new Date(Date.now() + backoffMs),
       },
     });
 
@@ -519,8 +531,8 @@ export class CalendarSyncService {
       calendarId: row.ghlAppointment.calendarId,
       locationId: row.ghlAppointment.locationId,
       assignedUserId: row.ghlAppointment.assignedUserId,
-      startTime: row.ghlAppointment.startAt!.toISOString(),
-      endTime: row.ghlAppointment.endAt!.toISOString(),
+      startTime: row.ghlAppointment.startAt.toISOString(),
+      endTime: row.ghlAppointment.endAt.toISOString(),
       title: row.ghlAppointment.title ?? 'Blocked (synced appointment)',
     });
 
@@ -530,9 +542,7 @@ export class CalendarSyncService {
       select: { id: true },
     });
 
-    const echoGuardUntil = new Date(
-      Date.now() + this.echoGuardSeconds * 1000,
-    );
+    const echoGuardUntil = new Date(Date.now() + this.echoGuardSeconds * 1000);
 
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.create({
@@ -663,10 +673,9 @@ export class CalendarSyncService {
     });
 
     // 4. Create appointment in GHL
-    const response = (await this.gohighlevelService.createAppointment(
-      payload,
-      { enqueueSync: false },
-    )) as Record<string, unknown>;
+    const response = (await this.gohighlevelService.createAppointment(payload, {
+      enqueueSync: false,
+    })) as Record<string, unknown>;
 
     const ghlId = response?.id ? String(response.id) : null;
     if (!ghlId) {
@@ -690,9 +699,7 @@ export class CalendarSyncService {
       select: { id: true },
     });
 
-    const echoGuardUntil = new Date(
-      Date.now() + this.echoGuardSeconds * 1000,
-    );
+    const echoGuardUntil = new Date(Date.now() + this.echoGuardSeconds * 1000);
 
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.create({
@@ -759,7 +766,10 @@ export class CalendarSyncService {
     }
 
     if (!ghlAppointment.startAt || !ghlAppointment.endAt) {
-      await this.markRowFailed(rowId, 'GHL appointment missing start/end time for update');
+      await this.markRowFailed(
+        rowId,
+        'GHL appointment missing start/end time for update',
+      );
       return false;
     }
 
@@ -774,9 +784,8 @@ export class CalendarSyncService {
     }
 
     // Use Leyr PATCH endpoint to update the existing appointment
-    const leyrStatus = ghlAppointment.status === 'cancelled'
-      ? 'cancelled'
-      : undefined;
+    const leyrStatus =
+      ghlAppointment.status === 'cancelled' ? 'cancelled' : undefined;
 
     await this.leyrService.updateAppointment(
       link.leyrAppointmentId,
@@ -785,11 +794,11 @@ export class CalendarSyncService {
         status: leyrStatus,
         start: leyrStatus ? undefined : ghlAppointment.startAt.toISOString(),
         end: leyrStatus ? undefined : ghlAppointment.endAt.toISOString(),
-        healthcare_service_id: leyrStatus ? undefined : leyrTarget.healthcareServiceId,
-        resource_id: leyrStatus ? undefined : leyrTarget.resourceId,
-        comment: leyrStatus
+        healthcare_service_id: leyrStatus
           ? undefined
-          : (ghlAppointment.title || undefined),
+          : leyrTarget.healthcareServiceId,
+        resource_id: leyrStatus ? undefined : leyrTarget.resourceId,
+        comment: leyrStatus ? undefined : ghlAppointment.title || undefined,
       },
       leyrTarget.emr,
     );
@@ -819,9 +828,7 @@ export class CalendarSyncService {
       });
     }
 
-    const echoGuardUntil = new Date(
-      Date.now() + this.echoGuardSeconds * 1000,
-    );
+    const echoGuardUntil = new Date(Date.now() + this.echoGuardSeconds * 1000);
 
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.update({
@@ -962,13 +969,17 @@ export class CalendarSyncService {
       return false;
     }
 
-    const leyrAppointment =
-      await this.prismaService.leyrAppointment.findUnique({
+    const leyrAppointment = await this.prismaService.leyrAppointment.findUnique(
+      {
         where: { leyrAppointmentId },
-      });
+      },
+    );
 
     if (!leyrAppointment) {
-      await this.markRowFailed(rowId, 'Leyr appointment record not found for update');
+      await this.markRowFailed(
+        rowId,
+        'Leyr appointment record not found for update',
+      );
       return false;
     }
 
@@ -1019,9 +1030,7 @@ export class CalendarSyncService {
       });
     }
 
-    const echoGuardUntil = new Date(
-      Date.now() + this.echoGuardSeconds * 1000,
-    );
+    const echoGuardUntil = new Date(Date.now() + this.echoGuardSeconds * 1000);
 
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.update({

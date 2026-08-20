@@ -126,8 +126,12 @@ describe('AuthService', () => {
   });
 
   it('throws on logout with invalid auth header', async () => {
-    await expect(service.logout(undefined)).rejects.toThrow(UnauthorizedException);
-    await expect(service.logout('Token abc')).rejects.toThrow(UnauthorizedException);
+    await expect(service.logout(undefined)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    await expect(service.logout('Token abc')).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('revokes session on valid logout token', async () => {

@@ -6,7 +6,10 @@ import { IsOptional, IsString } from 'class-validator';
 // ---------------------------------------------------------------------------
 
 export class CreateFacilityMappingDto {
-  @ApiProperty({ example: 'loc_abc123', description: 'GHL sub-account location ID' })
+  @ApiProperty({
+    example: 'loc_abc123',
+    description: 'GHL sub-account location ID',
+  })
   @IsString()
   ghlLocationId!: string;
 
@@ -42,7 +45,10 @@ export class CreateCalendarServiceMappingDto {
   @IsString()
   facilityMappingId!: string;
 
-  @ApiProperty({ example: 'cal_abc123', description: 'GHL service calendar ID' })
+  @ApiProperty({
+    example: 'cal_abc123',
+    description: 'GHL service calendar ID',
+  })
   @IsString()
   ghlCalendarId!: string;
 

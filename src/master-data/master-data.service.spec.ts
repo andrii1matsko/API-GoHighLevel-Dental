@@ -53,7 +53,9 @@ describe('MasterDataService', () => {
   it('throws when care unit does not exist', async () => {
     (prisma.careUnit.findUnique as jest.Mock).mockResolvedValue(null);
 
-    await expect(service.getCareUnit('missing')).rejects.toThrow(NotFoundException);
+    await expect(service.getCareUnit('missing')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it('updates care unit after existence check', async () => {
@@ -81,7 +83,9 @@ describe('MasterDataService', () => {
   it('throws when resource does not exist', async () => {
     (prisma.resource.findUnique as jest.Mock).mockResolvedValue(null);
 
-    await expect(service.getResource('missing')).rejects.toThrow(NotFoundException);
+    await expect(service.getResource('missing')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it('throws when health service does not exist', async () => {

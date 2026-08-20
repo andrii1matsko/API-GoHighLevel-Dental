@@ -112,7 +112,8 @@ export class CreateLeyrPatientDto {
 
   @ApiPropertyOptional({
     example: '1990-01-15',
-    description: 'Date of birth in ISO 8601 format (YYYY-MM-DD or full datetime)',
+    description:
+      'Date of birth in ISO 8601 format (YYYY-MM-DD or full datetime)',
     nullable: true,
   })
   @IsOptional()

@@ -24,9 +24,7 @@ export function ghlStatusToLeyr(ghlStatus: string | null | undefined): string {
   return GHL_TO_LEYR[ghlStatus.toLowerCase()] ?? 'booked';
 }
 
-export function leyrStatusToGhl(
-  leyrStatus: string | null | undefined,
-): string {
+export function leyrStatusToGhl(leyrStatus: string | null | undefined): string {
   if (!leyrStatus) return 'confirmed';
   return LEYR_TO_GHL[leyrStatus.toLowerCase()] ?? 'confirmed';
 }

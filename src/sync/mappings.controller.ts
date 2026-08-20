@@ -104,7 +104,9 @@ export class MappingsController {
   // -------------------------------------------------------------------------
 
   @Post('facilities')
-  @ApiOperation({ summary: 'Create a facility mapping (Calendar Group ↔ Care Unit)' })
+  @ApiOperation({
+    summary: 'Create a facility mapping (Calendar Group ↔ Care Unit)',
+  })
   async createFacility(@Body() dto: CreateFacilityMappingDto) {
     return this.prisma.facilityMapping.create({ data: dto });
   }
@@ -122,7 +124,10 @@ export class MappingsController {
   // -------------------------------------------------------------------------
 
   @Post('calendars')
-  @ApiOperation({ summary: 'Create a calendar-service mapping (Service Calendar ↔ Healthcare Service)' })
+  @ApiOperation({
+    summary:
+      'Create a calendar-service mapping (Service Calendar ↔ Healthcare Service)',
+  })
   async createCalendarService(@Body() dto: CreateCalendarServiceMappingDto) {
     const facility = await this.prisma.facilityMapping.findUnique({
       where: { id: dto.facilityMappingId },
@@ -150,7 +155,9 @@ export class MappingsController {
   // -------------------------------------------------------------------------
 
   @Post('staff')
-  @ApiOperation({ summary: 'Create a staff-resource mapping (Staff Member ↔ Resource)' })
+  @ApiOperation({
+    summary: 'Create a staff-resource mapping (Staff Member ↔ Resource)',
+  })
   async createStaffResource(@Body() dto: CreateStaffResourceMappingDto) {
     const facility = await this.prisma.facilityMapping.findUnique({
       where: { id: dto.facilityMappingId },
@@ -249,7 +256,8 @@ export class MappingsController {
         },
         leyr: bestCareUnit
           ? {
-              careUnitId: bestCareUnit.careUnit.id ?? bestCareUnit.careUnit.emr_id,
+              careUnitId:
+                bestCareUnit.careUnit.id ?? bestCareUnit.careUnit.emr_id,
               careUnitName: bestCareUnit.careUnit.name,
               emr,
             }
@@ -415,9 +423,7 @@ function findBestMatch<T>(
   if (!norm) return null;
 
   // Exact match
-  const exact = candidates.find(
-    (c) => c.label.toLowerCase().trim() === norm,
-  );
+  const exact = candidates.find((c) => c.label.toLowerCase().trim() === norm);
   if (exact) return exact.item;
 
   // Substring match (needle in candidate or candidate in needle)

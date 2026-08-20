@@ -48,7 +48,9 @@ function makeConfigStub() {
     GHL_LOCATION_ACCESS_TOKEN: '',
   };
   return {
-    get: jest.fn((key: string, fallback?: unknown) => defaults[key] ?? fallback ?? ''),
+    get: jest.fn(
+      (key: string, fallback?: unknown) => defaults[key] ?? fallback ?? '',
+    ),
   } as unknown as ConfigService;
 }
 
@@ -193,9 +195,8 @@ describe('GoHighLevel Webhook Edge Cases', () => {
         },
       });
 
-      const upsertCall = (prisma.ghlAppointment.upsert as jest.Mock).mock.calls[0] as [
-        { create: { startAt: Date | null } },
-      ];
+      const upsertCall = (prisma.ghlAppointment.upsert as jest.Mock).mock
+        .calls[0] as [{ create: { startAt: Date | null } }];
       const startAt = upsertCall[0].create.startAt;
       expect(startAt).toBeDefined();
       if (startAt) {
@@ -215,9 +216,8 @@ describe('GoHighLevel Webhook Edge Cases', () => {
         },
       });
 
-      const upsertCall = (prisma.ghlAppointment.upsert as jest.Mock).mock.calls[0] as [
-        { create: { startAt: Date | null } },
-      ];
+      const upsertCall = (prisma.ghlAppointment.upsert as jest.Mock).mock
+        .calls[0] as [{ create: { startAt: Date | null } }];
       const startAt = upsertCall[0].create.startAt;
       expect(startAt).toBeDefined();
       if (startAt) {
@@ -236,14 +236,17 @@ describe('GoHighLevel Webhook Edge Cases', () => {
       await service.ingestAppointmentMutationWebhook(
         {
           locationId: 'loc-1',
-          appointment: { id: 'idem-001', calendarId: 'cal-1', contactId: 'c-1' },
+          appointment: {
+            id: 'idem-001',
+            calendarId: 'cal-1',
+            contactId: 'c-1',
+          },
         },
         'AppointmentUpdate',
       );
 
-      const calls = (prisma.appointmentSync.upsert as jest.Mock).mock.calls as Array<
-        [{ where: { idempotencyKey: string } }]
-      >;
+      const calls = (prisma.appointmentSync.upsert as jest.Mock).mock
+        .calls as Array<[{ where: { idempotencyKey: string } }]>;
       const keys = calls.map((c) => c[0].where.idempotencyKey);
       expect(keys[0]).not.toBe(keys[1]);
       expect(keys[0]).toContain('AppointmentCreate');

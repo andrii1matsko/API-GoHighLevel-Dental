@@ -17,7 +17,9 @@ export class CalendarSyncController {
   @Post('calendar')
   @ApiOperation({ summary: 'Manually trigger appointment sync' })
   triggerSync(@Body() body: TriggerSyncDto) {
-    return this.calendarSyncService.syncAppointments(body.reason ?? 'manual-api');
+    return this.calendarSyncService.syncAppointments(
+      body.reason ?? 'manual-api',
+    );
   }
 
   @Post('poll-leyr')

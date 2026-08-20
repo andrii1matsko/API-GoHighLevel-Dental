@@ -49,7 +49,9 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
   };
 
   return {
-    get: jest.fn((key: string, fallback?: string) => defaults[key] ?? fallback ?? ''),
+    get: jest.fn(
+      (key: string, fallback?: string) => defaults[key] ?? fallback ?? '',
+    ),
   } as unknown as ConfigService;
 }
 
@@ -99,13 +101,18 @@ function fakeLeyrAppointment(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function fakeSyncRow(direction: string, overrides: Record<string, unknown> = {}) {
+function fakeSyncRow(
+  direction: string,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     id: 'sync-row-1',
     direction,
     status: 'pending',
-    sourceSystem: direction === 'GHL_TO_LEYR' ? 'GHL:AppointmentCreate' : 'LEYR',
-    sourceExternalId: direction === 'GHL_TO_LEYR' ? 'ghl-ext-001' : 'leyr-ext-001',
+    sourceSystem:
+      direction === 'GHL_TO_LEYR' ? 'GHL:AppointmentCreate' : 'LEYR',
+    sourceExternalId:
+      direction === 'GHL_TO_LEYR' ? 'ghl-ext-001' : 'leyr-ext-001',
     targetSystem: direction === 'GHL_TO_LEYR' ? 'LEYR' : 'GHL',
     targetExternalId: null,
     idempotencyKey: `${direction}:test`,
@@ -140,10 +147,18 @@ describe('CalendarSyncService', () => {
       const { service, prisma, leyr } = makeService();
       const syncRow = fakeSyncRow('GHL_TO_LEYR');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
-      (leyr.createAppointment as jest.Mock).mockResolvedValue([{ id: 'leyr-new-001' }]);
-      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'leyr-db-new' });
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (leyr.createAppointment as jest.Mock).mockResolvedValue([
+        { id: 'leyr-new-001' },
+      ]);
+      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'leyr-db-new',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       const result = await service.syncAppointments('test');
@@ -156,10 +171,18 @@ describe('CalendarSyncService', () => {
       const { service, prisma, ghl } = makeService();
       const syncRow = fakeSyncRow('LEYR_TO_GHL');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
-      (ghl.createAppointment as jest.Mock).mockResolvedValue({ id: 'ghl-new-001' });
-      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'ghl-db-new' });
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (ghl.createAppointment as jest.Mock).mockResolvedValue({
+        id: 'ghl-new-001',
+      });
+      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'ghl-db-new',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       const result = await service.syncAppointments('test');
@@ -172,7 +195,9 @@ describe('CalendarSyncService', () => {
       const { service, prisma } = makeService();
       const syncRow = fakeSyncRow('UNKNOWN_DIR');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
 
       const result = await service.syncAppointments('test');
 
@@ -198,7 +223,9 @@ describe('CalendarSyncService', () => {
       (ghl.createAppointment as jest.Mock)
         .mockResolvedValueOnce({ id: 'ghl-new' })
         .mockRejectedValueOnce(new Error('GHL API timeout'));
-      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'db-id' });
+      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db-id',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       const result = await service.syncAppointments('test');
@@ -215,7 +242,9 @@ describe('CalendarSyncService', () => {
         ghlAppointment: null,
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
       (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue({
         ...syncRow,
         ghlAppointment: null,
@@ -241,7 +270,9 @@ describe('CalendarSyncService', () => {
         leyrAppointment: null,
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
       (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue({
         ...syncRow,
         leyrAppointment: null,
@@ -269,8 +300,12 @@ describe('CalendarSyncService', () => {
         sourceSystem: 'GHL:AppointmentUpdate',
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -279,7 +314,9 @@ describe('CalendarSyncService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             status: 'failed',
-            errorMessage: expect.stringContaining('AppointmentUpdate not implemented'),
+            errorMessage: expect.stringContaining(
+              'AppointmentUpdate not implemented',
+            ),
           }),
         }),
       );
@@ -291,8 +328,12 @@ describe('CalendarSyncService', () => {
         sourceSystem: 'GHL:AppointmentDelete',
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -301,7 +342,9 @@ describe('CalendarSyncService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             status: 'failed',
-            errorMessage: expect.stringContaining('AppointmentDelete not implemented'),
+            errorMessage: expect.stringContaining(
+              'AppointmentDelete not implemented',
+            ),
           }),
         }),
       );
@@ -313,11 +356,20 @@ describe('CalendarSyncService', () => {
         SYNC_LEYR_DEFAULT_HEALTHCARE_SERVICE_ID: '',
         SYNC_LEYR_DEFAULT_RESOURCE_ID: '',
       });
-      const { service, prisma } = makeService(undefined, undefined, undefined, config);
+      const { service, prisma } = makeService(
+        undefined,
+        undefined,
+        undefined,
+        config,
+      );
       const syncRow = fakeSyncRow('GHL_TO_LEYR');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -338,8 +390,12 @@ describe('CalendarSyncService', () => {
         ghlAppointment: fakeGhlAppointment({ startAt: null, endAt: null }),
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -358,8 +414,12 @@ describe('CalendarSyncService', () => {
       const { service, prisma, leyr } = makeService();
       const syncRow = fakeSyncRow('GHL_TO_LEYR');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (leyr.createAppointment as jest.Mock).mockResolvedValue([]);
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
@@ -380,10 +440,18 @@ describe('CalendarSyncService', () => {
       const ghlAppt = fakeGhlAppointment();
       const syncRow = fakeSyncRow('GHL_TO_LEYR', { ghlAppointment: ghlAppt });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
-      (leyr.createAppointment as jest.Mock).mockResolvedValue([{ id: 'leyr-new' }]);
-      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'db-id' });
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (leyr.createAppointment as jest.Mock).mockResolvedValue([
+        { id: 'leyr-new' },
+      ]);
+      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db-id',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -406,10 +474,18 @@ describe('CalendarSyncService', () => {
       const { service, prisma, leyr } = makeService();
       const syncRow = fakeSyncRow('GHL_TO_LEYR');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
-      (leyr.createAppointment as jest.Mock).mockResolvedValue([{ id: 'leyr-new-id' }]);
-      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'leyr-db-id' });
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (leyr.createAppointment as jest.Mock).mockResolvedValue([
+        { id: 'leyr-new-id' },
+      ]);
+      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'leyr-db-id',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -433,11 +509,20 @@ describe('CalendarSyncService', () => {
         SYNC_GHL_DEFAULT_LOCATION_ID: '',
         SYNC_GHL_DEFAULT_CALENDAR_ID: '',
       });
-      const { service, prisma } = makeService(undefined, undefined, undefined, config);
+      const { service, prisma } = makeService(
+        undefined,
+        undefined,
+        undefined,
+        config,
+      );
       const syncRow = fakeSyncRow('LEYR_TO_GHL');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -457,10 +542,16 @@ describe('CalendarSyncService', () => {
       const leyrAppt = fakeLeyrAppointment();
       const syncRow = fakeSyncRow('LEYR_TO_GHL', { leyrAppointment: leyrAppt });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (ghl.createAppointment as jest.Mock).mockResolvedValue({ id: 'ghl-new' });
-      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'db-id' });
+      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db-id',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -482,8 +573,12 @@ describe('CalendarSyncService', () => {
       const { service, prisma, ghl } = makeService();
       const syncRow = fakeSyncRow('LEYR_TO_GHL');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (ghl.createAppointment as jest.Mock).mockResolvedValue({});
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
@@ -501,13 +596,22 @@ describe('CalendarSyncService', () => {
 
     it('uses Leyr description as GHL title, falls back to comment', async () => {
       const { service, prisma, ghl } = makeService();
-      const leyrAppt = fakeLeyrAppointment({ description: null, comment: 'Tandvård' });
+      const leyrAppt = fakeLeyrAppointment({
+        description: null,
+        comment: 'Tandvård',
+      });
       const syncRow = fakeSyncRow('LEYR_TO_GHL', { leyrAppointment: leyrAppt });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (ghl.createAppointment as jest.Mock).mockResolvedValue({ id: 'ghl-new' });
-      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'db-id' });
+      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db-id',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -520,16 +624,25 @@ describe('CalendarSyncService', () => {
 
     it('uses fallback title when both description and comment are null', async () => {
       const { service, prisma, ghl } = makeService();
-      const leyrAppt = fakeLeyrAppointment({ description: null, comment: null });
+      const leyrAppt = fakeLeyrAppointment({
+        description: null,
+        comment: null,
+      });
       const syncRow = fakeSyncRow('LEYR_TO_GHL', {
         leyrAppointment: leyrAppt,
         sourceExternalId: 'leyr-xyz',
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (ghl.createAppointment as jest.Mock).mockResolvedValue({ id: 'ghl-new' });
-      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'db-id' });
+      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db-id',
+      });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
@@ -548,8 +661,12 @@ describe('CalendarSyncService', () => {
       const { service, prisma, leyr } = makeService();
       const syncRow = fakeSyncRow('GHL_TO_LEYR');
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
-      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(syncRow);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
       (leyr.createAppointment as jest.Mock).mockRejectedValue(
         new Error('Leyr API timeout'),
       );
@@ -573,13 +690,16 @@ describe('CalendarSyncService', () => {
 
       (prisma.appointmentSync.findUnique as jest.Mock).mockImplementation(
         ({ where }: { where: { id: string } }) => {
-          if (where.id === 'fail-row') return Promise.reject(new Error('DB connection error'));
+          if (where.id === 'fail-row')
+            return Promise.reject(new Error('DB connection error'));
           return Promise.resolve(successRow);
         },
       );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
       (ghl.createAppointment as jest.Mock).mockResolvedValue({ id: 'new-ghl' });
-      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({ id: 'db-id' });
+      (prisma.ghlAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db-id',
+      });
 
       const result = await service.syncAppointments('test');
 
@@ -593,7 +713,9 @@ describe('CalendarSyncService', () => {
         ghlAppointment: null,
       });
 
-      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([syncRow]);
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
       (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue({
         ...syncRow,
         ghlAppointment: null,

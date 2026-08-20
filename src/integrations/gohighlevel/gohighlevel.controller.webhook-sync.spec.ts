@@ -61,7 +61,9 @@ describe('GohighlevelController webhook immediate sync', () => {
     });
 
     expect(result.accepted).toBe(true);
-    expect(calendarSyncService.syncAppointments).toHaveBeenCalledWith('webhook');
+    expect(calendarSyncService.syncAppointments).toHaveBeenCalledWith(
+      'webhook',
+    );
   });
 
   it('does not trigger sync when webhook type mismatch rejects payload', async () => {
@@ -79,12 +81,14 @@ describe('GohighlevelController webhook immediate sync', () => {
   });
 
   it('skips immediate sync when SYNC_IMMEDIATE_ON_WEBHOOK=false', async () => {
-    configService.get.mockImplementation((key: string, defaultValue?: string) => {
-      if (key === 'SYNC_IMMEDIATE_ON_WEBHOOK') {
-        return 'false';
-      }
-      return defaultValue;
-    });
+    configService.get.mockImplementation(
+      (key: string, defaultValue?: string) => {
+        if (key === 'SYNC_IMMEDIATE_ON_WEBHOOK') {
+          return 'false';
+        }
+        return defaultValue;
+      },
+    );
 
     gohighlevelService.ingestAppointmentMutationWebhook.mockResolvedValue({
       accepted: true,

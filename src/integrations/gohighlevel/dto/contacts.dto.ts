@@ -307,7 +307,15 @@ class SearchContactFilter {
 
   @ApiPropertyOptional({
     example: 'eq',
-    enum: ['eq', 'not_eq', 'contains', 'not_contains', 'exists', 'not_exists', 'range'],
+    enum: [
+      'eq',
+      'not_eq',
+      'contains',
+      'not_contains',
+      'exists',
+      'not_exists',
+      'range',
+    ],
   })
   @IsOptional()
   @IsString()
@@ -355,12 +363,18 @@ export class SearchContactsDto {
   @IsString()
   locationId!: string;
 
-  @ApiPropertyOptional({ example: 1, description: 'Page number (standard pagination)' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Page number (standard pagination)',
+  })
   @IsOptional()
   @IsNumber()
   page?: number;
 
-  @ApiPropertyOptional({ example: 20, description: 'Results per page (max 500)' })
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'Results per page (max 500)',
+  })
   @IsOptional()
   @IsNumber()
   pageLimit?: number;
@@ -389,7 +403,8 @@ export class SearchContactsDto {
 
   @ApiPropertyOptional({
     example: 'John Doe',
-    description: 'Free-text query to run against searchable fields (max 75 chars)',
+    description:
+      'Free-text query to run against searchable fields (max 75 chars)',
   })
   @IsOptional()
   @IsString()

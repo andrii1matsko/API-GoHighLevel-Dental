@@ -166,9 +166,8 @@ export class IdentityResolverService {
     if (existing) return existing;
 
     const contactResponse = await this.ghlService.getContact(ghlContactId, {});
-    const contact = (
-      (contactResponse as { contact?: GhlContactRecord })?.contact ?? contactResponse
-    ) as GhlContactRecord;
+    const contact = ((contactResponse as { contact?: GhlContactRecord })
+      ?.contact ?? contactResponse) as GhlContactRecord;
 
     const firstName = contact.firstName ?? null;
     const lastName = contact.lastName ?? null;
@@ -182,9 +181,8 @@ export class IdentityResolverService {
       );
     }
 
-    const { careUnitId, emr } = await this.resolveCareUnitForLocation(
-      ghlLocationId,
-    );
+    const { careUnitId, emr } =
+      await this.resolveCareUnitForLocation(ghlLocationId);
 
     let leyrPatientId: string;
 
@@ -433,12 +431,15 @@ export class IdentityResolverService {
       if (emailMatch) return emailMatch;
     }
 
-    if (patients.length === 1 && this.namesMatch(
-      patients[0].first_name,
-      patients[0].last_name,
-      firstName,
-      lastName,
-    )) {
+    if (
+      patients.length === 1 &&
+      this.namesMatch(
+        patients[0].first_name,
+        patients[0].last_name,
+        firstName,
+        lastName,
+      )
+    ) {
       this.logger.warn(
         `Single name-only match for ${firstName} ${lastName} in Leyr — using it but no secondary verification`,
       );
@@ -657,8 +658,7 @@ export class IdentityResolverService {
     return (
       (aFirst ?? '').toLowerCase().trim() ===
         (bFirst ?? '').toLowerCase().trim() &&
-      (aLast ?? '').toLowerCase().trim() ===
-        (bLast ?? '').toLowerCase().trim()
+      (aLast ?? '').toLowerCase().trim() === (bLast ?? '').toLowerCase().trim()
     );
   }
 

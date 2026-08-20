@@ -64,7 +64,7 @@ export class ObservabilityInterceptor implements NestInterceptor {
     let statusCode = res.statusCode;
     if (err) {
       statusCode =
-        err instanceof HttpException ? err.getStatus() : (statusCode || 500);
+        err instanceof HttpException ? err.getStatus() : statusCode || 500;
     }
 
     const base = {
@@ -77,7 +77,11 @@ export class ObservabilityInterceptor implements NestInterceptor {
     };
 
     if (process.env.LOG_FORMAT === 'json') {
-      const line = JSON.stringify({ level: 'http', ts: new Date().toISOString(), ...base });
+      const line = JSON.stringify({
+        level: 'http',
+        ts: new Date().toISOString(),
+        ...base,
+      });
       if (statusCode >= 500) {
         this.logger.error(line);
       } else if (statusCode >= 400) {
@@ -112,7 +116,7 @@ export class ObservabilityInterceptor implements NestInterceptor {
     let statusCode = res.statusCode;
     if (err) {
       statusCode =
-        err instanceof HttpException ? err.getStatus() : (statusCode || 500);
+        err instanceof HttpException ? err.getStatus() : statusCode || 500;
     }
 
     const actor = await this.resolveActor(req.headers.authorization);
@@ -126,9 +130,10 @@ export class ObservabilityInterceptor implements NestInterceptor {
       resourceType: inferResourceType(path),
       resourceId: inferResourceId(path),
       ip: req.ip ?? undefined,
-      userAgent: typeof req.headers['user-agent'] === 'string'
-        ? req.headers['user-agent']
-        : undefined,
+      userAgent:
+        typeof req.headers['user-agent'] === 'string'
+          ? req.headers['user-agent']
+          : undefined,
       requestId: req.correlationId,
       statusCode,
       durationMs: Date.now() - started,

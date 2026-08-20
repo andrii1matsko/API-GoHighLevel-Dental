@@ -200,9 +200,7 @@ function generateTimeslots(
             end: slotEnd.toISOString(),
             timezone: tz,
             care_unit_id: careUnitId,
-            resource_id:
-              resourceId ??
-              (isNorway ? 'res-no-001' : 'res-001'),
+            resource_id: resourceId ?? (isNorway ? 'res-no-001' : 'res-001'),
             available: true,
           });
         }

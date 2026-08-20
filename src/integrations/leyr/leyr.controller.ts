@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { LeyrService } from './leyr.service';
 import { CreateLeyrAppointmentDto } from './dto/create-appointment.dto';
@@ -93,7 +101,7 @@ export class LeyrController {
       careUnitId,
       resourceId,
       healthcareServiceId,
-      start,   
+      start,
       end,
       emr,
     );

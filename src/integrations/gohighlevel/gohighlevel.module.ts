@@ -19,11 +19,16 @@ import { PrismaService } from '../../prisma/prisma.service';
         prismaService: PrismaService,
       ) => {
         const useMock =
-          configService.get<string>('USE_MOCK_INTEGRATIONS', 'false') === 'true';
+          configService.get<string>('USE_MOCK_INTEGRATIONS', 'false') ===
+          'true';
         if (useMock) {
           return new GohighlevelMockService(prismaService);
         }
-        return new GohighlevelService(httpService, configService, prismaService);
+        return new GohighlevelService(
+          httpService,
+          configService,
+          prismaService,
+        );
       },
       inject: [HttpService, ConfigService, PrismaService],
     },

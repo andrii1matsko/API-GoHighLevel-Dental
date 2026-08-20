@@ -5,7 +5,12 @@ import { ConfigService } from '@nestjs/config';
 import { LeyrService } from './leyr.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { of, throwError } from 'rxjs';
-import { AxiosResponse, AxiosHeaders, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import {
+  AxiosResponse,
+  AxiosHeaders,
+  AxiosError,
+  InternalAxiosRequestConfig,
+} from 'axios';
 
 function makeAxiosResponse<T>(data: T, status = 200): AxiosResponse<T> {
   return {
@@ -40,7 +45,9 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
   };
 
   return {
-    get: jest.fn((key: string, fallback?: string) => defaults[key] ?? fallback ?? ''),
+    get: jest.fn(
+      (key: string, fallback?: string) => defaults[key] ?? fallback ?? '',
+    ),
   } as unknown as ConfigService;
 }
 
@@ -136,9 +143,7 @@ describe('LeyrService', () => {
     });
 
     it('uses provided EMR override', async () => {
-      (httpService.get as jest.Mock).mockReturnValue(
-        of(makeAxiosResponse([])),
-      );
+      (httpService.get as jest.Mock).mockReturnValue(of(makeAxiosResponse([])));
 
       await service.getCareUnits('muntra');
 
@@ -151,9 +156,7 @@ describe('LeyrService', () => {
 
   describe('findPatients', () => {
     it('sends query params for filtering', async () => {
-      (httpService.get as jest.Mock).mockReturnValue(
-        of(makeAxiosResponse([])),
-      );
+      (httpService.get as jest.Mock).mockReturnValue(of(makeAxiosResponse([])));
 
       await service.findPatients('cu-1', 'Erik', 'Johansson');
 
@@ -180,10 +183,14 @@ describe('LeyrService', () => {
       );
 
       (httpService.get as jest.Mock)
-        .mockReturnValueOnce(throwError(() => {
-          const axErr = makeAxiosError(400, { detail: "loc': ('path', 'emr')" });
-          return axErr;
-        }))
+        .mockReturnValueOnce(
+          throwError(() => {
+            const axErr = makeAxiosError(400, {
+              detail: "loc': ('path', 'emr')",
+            });
+            return axErr;
+          }),
+        )
         .mockReturnValueOnce(of(makeAxiosResponse([{ id: 'pat-1' }])));
 
       const result = await service.findPatients('cu-1');
@@ -218,11 +225,15 @@ describe('LeyrService', () => {
 
   describe('getTimeslots', () => {
     it('passes all filter params', async () => {
-      (httpService.get as jest.Mock).mockReturnValue(
-        of(makeAxiosResponse([])),
-      );
+      (httpService.get as jest.Mock).mockReturnValue(of(makeAxiosResponse([])));
 
-      await service.getTimeslots('cu-1', 'res-1', 'hs-1', '2026-06-01', '2026-06-30');
+      await service.getTimeslots(
+        'cu-1',
+        'res-1',
+        'hs-1',
+        '2026-06-01',
+        '2026-06-30',
+      );
 
       expect(httpService.get).toHaveBeenCalledWith(
         expect.stringContaining('/timeslots'),
@@ -244,7 +255,12 @@ describe('LeyrService', () => {
         of(makeAxiosResponse([{ id: 'appt-1' }])),
       );
 
-      const result = await service.getAppointments('cu-1', 'pat-1', '2026-06-01', '2026-06-30');
+      const result = await service.getAppointments(
+        'cu-1',
+        'pat-1',
+        '2026-06-01',
+        '2026-06-30',
+      );
 
       expect(result).toEqual([{ id: 'appt-1' }]);
     });
@@ -292,7 +308,15 @@ describe('LeyrService', () => {
 
     it('enqueues LEYR_TO_GHL sync by default', async () => {
       (httpService.post as jest.Mock).mockReturnValue(
-        of(makeAxiosResponse([{ id: 'leyr-new-002', start: '2026-06-15T09:00:00Z', end: '2026-06-15T10:00:00Z' }])),
+        of(
+          makeAxiosResponse([
+            {
+              id: 'leyr-new-002',
+              start: '2026-06-15T09:00:00Z',
+              end: '2026-06-15T10:00:00Z',
+            },
+          ]),
+        ),
       );
 
       await service.createAppointment('cu-1', validPayload);
@@ -311,7 +335,15 @@ describe('LeyrService', () => {
 
     it('skips sync enqueue when enqueueSync=false', async () => {
       (httpService.post as jest.Mock).mockReturnValue(
-        of(makeAxiosResponse([{ id: 'leyr-new-003', start: '2026-06-15T09:00:00Z', end: '2026-06-15T10:00:00Z' }])),
+        of(
+          makeAxiosResponse([
+            {
+              id: 'leyr-new-003',
+              start: '2026-06-15T09:00:00Z',
+              end: '2026-06-15T10:00:00Z',
+            },
+          ]),
+        ),
       );
 
       await service.createAppointment('cu-1', validPayload, undefined, {
@@ -372,9 +404,7 @@ describe('LeyrService', () => {
   describe('error handling', () => {
     it('wraps Axios errors into HttpException with status and detail', async () => {
       (httpService.get as jest.Mock).mockReturnValue(
-        throwError(() =>
-          makeAxiosError(404, { detail: 'EMR not found' }),
-        ),
+        throwError(() => makeAxiosError(404, { detail: 'EMR not found' })),
       );
 
       try {
@@ -424,9 +454,7 @@ describe('LeyrService', () => {
 
   describe('getHeaders', () => {
     it('includes encryption key when set', async () => {
-      (httpService.get as jest.Mock).mockReturnValue(
-        of(makeAxiosResponse([])),
-      );
+      (httpService.get as jest.Mock).mockReturnValue(of(makeAxiosResponse([])));
 
       await service.getEmrs();
 
@@ -449,7 +477,10 @@ describe('LeyrService', () => {
 
       await svc.getEmrs();
 
-      const callArgs = (http.get as jest.Mock).mock.calls[0] as [string, { headers: Record<string, string> }];
+      const callArgs = (http.get as jest.Mock).mock.calls[0] as [
+        string,
+        { headers: Record<string, string> },
+      ];
       expect(callArgs[1].headers).not.toHaveProperty('x-leyr-encryption-key');
     });
   });

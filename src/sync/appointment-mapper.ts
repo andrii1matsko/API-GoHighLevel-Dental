@@ -60,10 +60,7 @@ export function mapGhlToLeyrPayload(input: GhlToLeyrInput): {
   };
 }
 
-function buildLeyrComment(
-  title: string | null,
-  fallbackId: string,
-): string {
+function buildLeyrComment(title: string | null, fallbackId: string): string {
   if (title && title.trim().length > 0) return title.trim();
   return `Synced from GHL ${fallbackId}`;
 }
@@ -125,9 +122,11 @@ export function mapLeyrToGhlPayload(
  *
  * Returns null if the appointment is unchanged enough to skip recreation.
  */
-export function mapGhlUpdateToLeyrCreatePayload(
-  input: GhlToLeyrInput,
-): { careUnitId: string; emr: string; payload: CreateLeyrAppointmentDto } {
+export function mapGhlUpdateToLeyrCreatePayload(input: GhlToLeyrInput): {
+  careUnitId: string;
+  emr: string;
+  payload: CreateLeyrAppointmentDto;
+} {
   return mapGhlToLeyrPayload(input);
 }
 

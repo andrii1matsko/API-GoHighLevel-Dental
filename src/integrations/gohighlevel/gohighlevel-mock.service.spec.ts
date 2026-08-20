@@ -60,7 +60,9 @@ describe('GohighlevelMockService', () => {
 
       expect(publicResult.services.length).toBeGreaterThan(0);
       expect(privateResult.services.length).toBeGreaterThan(0);
-      expect(publicResult.services.length + privateResult.services.length).toBe(3);
+      expect(publicResult.services.length + privateResult.services.length).toBe(
+        3,
+      );
     });
   });
 

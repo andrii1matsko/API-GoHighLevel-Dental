@@ -26,7 +26,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<RequestWithContext>();
 
-    const { status, message, code, detail } = this.normalizeException(exception);
+    const { status, message, code, detail } =
+      this.normalizeException(exception);
     const isProd =
       this.configService.get<string>('NODE_ENV') === 'production' ||
       process.env.NODE_ENV === 'production';
@@ -73,7 +74,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (typeof res === 'object' && res !== null) {
         const obj = res as Record<string, unknown>;
         const msg = obj.message;
-        const result: { status: number; message: string | string[]; code?: string; detail?: unknown } = {
+        const result: {
+          status: number;
+          message: string | string[];
+          code?: string;
+          detail?: unknown;
+        } = {
           status,
           message: Array.isArray(msg)
             ? (msg as string[])

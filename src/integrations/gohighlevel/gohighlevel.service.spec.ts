@@ -5,7 +5,12 @@ import { ConfigService } from '@nestjs/config';
 import { GohighlevelService } from './gohighlevel.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { of, throwError } from 'rxjs';
-import { AxiosResponse, AxiosHeaders, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import {
+  AxiosResponse,
+  AxiosHeaders,
+  AxiosError,
+  InternalAxiosRequestConfig,
+} from 'axios';
 
 function makeAxiosResponse<T>(data: T, status = 200): AxiosResponse<T> {
   return {
@@ -50,7 +55,9 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
   };
 
   return {
-    get: jest.fn((key: string, fallback?: unknown) => defaults[key] ?? fallback ?? ''),
+    get: jest.fn(
+      (key: string, fallback?: unknown) => defaults[key] ?? fallback ?? '',
+    ),
   } as unknown as ConfigService;
 }
 
@@ -88,7 +95,9 @@ function createService(
     accessTokenExpiresAt: new Date(Date.now() + 86400 * 1000),
     refreshToken: 'stored-refresh-token',
   };
-  (prismaService.ghlOAuthToken.findUnique as jest.Mock).mockResolvedValue(storedToken);
+  (prismaService.ghlOAuthToken.findUnique as jest.Mock).mockResolvedValue(
+    storedToken,
+  );
 
   return {
     service: new GohighlevelService(httpService, configService, prismaService),
@@ -429,17 +438,17 @@ describe('GohighlevelService', () => {
 
   describe('getAppointmentById', () => {
     it('throws when eventId is empty', async () => {
-      await expect(
-        service.getAppointmentById('', {}),
-      ).rejects.toThrow(HttpException);
+      await expect(service.getAppointmentById('', {})).rejects.toThrow(
+        HttpException,
+      );
     });
   });
 
   describe('getCalendarById', () => {
     it('throws when calendarId is empty', async () => {
-      await expect(
-        service.getCalendarById('', {}),
-      ).rejects.toThrow(HttpException);
+      await expect(service.getCalendarById('', {})).rejects.toThrow(
+        HttpException,
+      );
     });
   });
 

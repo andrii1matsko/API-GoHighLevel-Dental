@@ -34,7 +34,10 @@ export class LeyrService {
       'https://api.leyr.io/api',
     );
     this.clientId = this.configService.get<string>('LEYR_CLIENT_ID', '');
-    this.clientSecret = this.configService.get<string>('LEYR_CLIENT_SECRET', '');
+    this.clientSecret = this.configService.get<string>(
+      'LEYR_CLIENT_SECRET',
+      '',
+    );
     this.encryptionKey = this.configService.get<string>(
       'LEYR_ENCRYPTION_KEY',
       '',
@@ -58,7 +61,9 @@ export class LeyrService {
 
   private assertCredentials() {
     if (!this.clientId || !this.clientSecret) {
-      this.logger.error('Leyr credentials are missing in environment variables');
+      this.logger.error(
+        'Leyr credentials are missing in environment variables',
+      );
       throw new Error(
         'Leyr credentials are missing. Set LEYR_CLIENT_ID and LEYR_CLIENT_SECRET.',
       );
@@ -104,9 +109,7 @@ export class LeyrService {
   private async post(path: string, payload: unknown): Promise<unknown> {
     this.assertCredentials();
 
-    this.logger.log(
-      `Leyr POST ${path} body: ${JSON.stringify(payload)}`,
-    );
+    this.logger.log(`Leyr POST ${path} body: ${JSON.stringify(payload)}`);
 
     try {
       const response = await firstValueFrom(
@@ -193,9 +196,8 @@ export class LeyrService {
         | { leyr?: { detail?: string }; message?: string }
         | undefined;
       const detail =
-        response?.leyr?.detail ?? (typeof response?.message === 'string'
-          ? response.message
-          : '');
+        response?.leyr?.detail ??
+        (typeof response?.message === 'string' ? response.message : '');
       const shouldFallback =
         error.getStatus() === 400 &&
         typeof detail === 'string' &&
@@ -257,7 +259,9 @@ export class LeyrService {
   }
 
   getResources(careUnitId: string, emr?: string) {
-    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/resources`);
+    return this.get(
+      `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/resources`,
+    );
   }
 
   getTimeslots(
@@ -268,12 +272,15 @@ export class LeyrService {
     end?: string,
     emr?: string,
   ) {
-    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/timeslots`, {
-      resource_id: resourceId,
-      healthcare_service_id: healthcareServiceId,
-      start,
-      end,
-    });
+    return this.get(
+      `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/timeslots`,
+      {
+        resource_id: resourceId,
+        healthcare_service_id: healthcareServiceId,
+        start,
+        end,
+      },
+    );
   }
 
   getAppointments(
@@ -283,11 +290,14 @@ export class LeyrService {
     end?: string,
     emr?: string,
   ) {
-    return this.get(`/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/appointments`, {
-      patient_id: patientId,
-      start,
-      end,
-    });
+    return this.get(
+      `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/appointments`,
+      {
+        patient_id: patientId,
+        start,
+        end,
+      },
+    );
   }
 
   getMedicalNotes(careUnitId: string, patientId: string, emr?: string) {
@@ -445,7 +455,9 @@ export class LeyrService {
                 : new Date(payload.end),
             status: first.status ? String(first.status) : null,
             description: first.description ? String(first.description) : null,
-            comment: first.comment ? String(first.comment) : payload.comment ?? null,
+            comment: first.comment
+              ? String(first.comment)
+              : (payload.comment ?? null),
             participants: first.participants
               ? (first.participants as Prisma.InputJsonValue)
               : Prisma.JsonNull,
@@ -471,7 +483,9 @@ export class LeyrService {
                 : new Date(payload.end),
             status: first.status ? String(first.status) : null,
             description: first.description ? String(first.description) : null,
-            comment: first.comment ? String(first.comment) : payload.comment ?? null,
+            comment: first.comment
+              ? String(first.comment)
+              : (payload.comment ?? null),
             participants: first.participants
               ? (first.participants as Prisma.InputJsonValue)
               : Prisma.JsonNull,

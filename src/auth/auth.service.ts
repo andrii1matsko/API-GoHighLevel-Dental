@@ -58,13 +58,30 @@ export class AuthService {
     });
 
     if (!user) {
-      await this.recordAuthAudit('login_failed', dto.email, null, ip, userAgent, 'User not found');
+      await this.recordAuthAudit(
+        'login_failed',
+        dto.email,
+        null,
+        ip,
+        userAgent,
+        'User not found',
+      );
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
+    const passwordMatches = await bcrypt.compare(
+      dto.password,
+      user.passwordHash,
+    );
     if (!passwordMatches) {
-      await this.recordAuthAudit('login_failed', dto.email, user.id, ip, userAgent, 'Wrong password');
+      await this.recordAuthAudit(
+        'login_failed',
+        dto.email,
+        user.id,
+        ip,
+        userAgent,
+        'Wrong password',
+      );
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -92,7 +109,13 @@ export class AuthService {
       },
     );
 
-    await this.recordAuthAudit('login_success', user.email, user.id, ip, userAgent);
+    await this.recordAuthAudit(
+      'login_success',
+      user.email,
+      user.id,
+      ip,
+      userAgent,
+    );
 
     return {
       accessToken,
@@ -120,7 +143,14 @@ export class AuthService {
         secret: this.getJwtSecret(),
       });
     } catch {
-      await this.recordAuthAudit('logout_failed', undefined, undefined, ip, userAgent, 'Invalid or expired token');
+      await this.recordAuthAudit(
+        'logout_failed',
+        undefined,
+        undefined,
+        ip,
+        userAgent,
+        'Invalid or expired token',
+      );
       throw new UnauthorizedException('Invalid or expired access token');
     }
 
@@ -138,7 +168,13 @@ export class AuthService {
       },
     });
 
-    await this.recordAuthAudit('logout_success', payload.email, payload.sub, ip, userAgent);
+    await this.recordAuthAudit(
+      'logout_success',
+      payload.email,
+      payload.sub,
+      ip,
+      userAgent,
+    );
 
     return {
       message: 'Logged out successfully',

@@ -28,9 +28,7 @@ function sanitizeValue(value: unknown): unknown {
   return value;
 }
 
-function sanitizeObject(
-  obj: Record<string, unknown>,
-): Record<string, unknown> {
+function sanitizeObject(obj: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(obj)) {
     result[key] = sanitizeValue(val);

@@ -5,7 +5,11 @@ import { HealthServicesController } from './health-services.controller';
 import { ResourcesController } from './resources.controller';
 
 @Module({
-  controllers: [CareUnitsController, HealthServicesController, ResourcesController],
+  controllers: [
+    CareUnitsController,
+    HealthServicesController,
+    ResourcesController,
+  ],
   providers: [MasterDataService],
 })
 export class MasterDataModule {}

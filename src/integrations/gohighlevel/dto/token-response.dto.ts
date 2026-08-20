@@ -13,7 +13,9 @@ export class GohighlevelTokenResponseDto {
   @ApiProperty({ example: 'xy34dc0ae1234a4858f9ff06d4f66ba' })
   refresh_token!: string;
 
-  @ApiProperty({ example: 'conversations/message.readonly conversations/message.write' })
+  @ApiProperty({
+    example: 'conversations/message.readonly conversations/message.write',
+  })
   scope!: string;
 
   @ApiProperty({ example: 'Location' })

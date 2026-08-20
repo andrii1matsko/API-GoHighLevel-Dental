@@ -163,7 +163,8 @@ export class GohighlevelService {
   }
 
   private resolveLocationId(locationId?: string): string {
-    const resolvedLocationId = locationId || this.oauthLocationId || this.locationId;
+    const resolvedLocationId =
+      locationId || this.oauthLocationId || this.locationId;
     if (!resolvedLocationId) {
       throw new HttpException(
         'Missing locationId. Pass it in query or set GHL_LOCATION_ID_OAUTH in environment.',
@@ -228,7 +229,9 @@ export class GohighlevelService {
     isBulkInstallation?: boolean;
   }): Promise<void> {
     const accessTokenExpiresAt =
-      params.accessToken && params.expiresIn && Number.isFinite(params.expiresIn)
+      params.accessToken &&
+      params.expiresIn &&
+      Number.isFinite(params.expiresIn)
         ? new Date(Date.now() + params.expiresIn * 1000)
         : undefined;
 
@@ -286,7 +289,9 @@ export class GohighlevelService {
       userType: this.agencyRefreshUserType,
       accessToken: this.agencyAccessToken || undefined,
       refreshToken: this.bootstrapAgencyRefreshToken,
-      expiresIn: accessTokenExp ? accessTokenExp - Math.floor(Date.now() / 1000) : undefined,
+      expiresIn: accessTokenExp
+        ? accessTokenExp - Math.floor(Date.now() / 1000)
+        : undefined,
     });
   }
 
@@ -329,14 +334,21 @@ export class GohighlevelService {
         )
       : null;
     const dbCachedToken = dbToken ? this.toCachedToken(dbToken) : null;
-    if (!forceRefresh && dbCachedToken && this.isTokenStillValid(dbCachedToken)) {
+    if (
+      !forceRefresh &&
+      dbCachedToken &&
+      this.isTokenStillValid(dbCachedToken)
+    ) {
       this.cachedAgencyToken = dbCachedToken;
       return dbCachedToken.accessToken;
     }
 
     if (!forceRefresh && this.agencyAccessToken) {
       const exp = this.extractJwtExp(this.agencyAccessToken);
-      if (exp && exp - Math.floor(Date.now() / 1000) > this.tokenRefreshLeewaySeconds) {
+      if (
+        exp &&
+        exp - Math.floor(Date.now() / 1000) > this.tokenRefreshLeewaySeconds
+      ) {
         this.cachedAgencyToken = {
           accessToken: this.agencyAccessToken,
           expiresAtUnix: exp,
@@ -345,7 +357,8 @@ export class GohighlevelService {
       }
     }
 
-    const refreshToken = dbToken?.refreshToken || this.bootstrapAgencyRefreshToken;
+    const refreshToken =
+      dbToken?.refreshToken || this.bootstrapAgencyRefreshToken;
     if (!refreshToken) {
       throw new HttpException(
         'Missing agency refresh token. Persist one token record first or set GHL_AGENCY_REFRESH_TOKEN once for bootstrap.',
@@ -361,7 +374,10 @@ export class GohighlevelService {
     const nextRefreshToken = refreshed?.refresh_token as string | undefined;
     const expiresIn = Number(refreshed?.expires_in ?? 0);
     if (!accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
-      throw new HttpException('Invalid agency token response from GoHighLevel', 502);
+      throw new HttpException(
+        'Invalid agency token response from GoHighLevel',
+        502,
+      );
     }
     if (!this.oauthCompanyId) {
       throw new HttpException(
@@ -377,13 +393,17 @@ export class GohighlevelService {
       accessToken,
       refreshToken: nextRefreshToken || refreshToken,
       expiresIn,
-      tokenType: typeof refreshed?.token_type === 'string' ? refreshed.token_type : undefined,
+      tokenType:
+        typeof refreshed?.token_type === 'string'
+          ? refreshed.token_type
+          : undefined,
       scope: typeof refreshed?.scope === 'string' ? refreshed.scope : undefined,
       refreshTokenId:
         typeof refreshed?.refreshTokenId === 'string'
           ? refreshed.refreshTokenId
           : undefined,
-      userId: typeof refreshed?.userId === 'string' ? refreshed.userId : undefined,
+      userId:
+        typeof refreshed?.userId === 'string' ? refreshed.userId : undefined,
       isBulkInstallation:
         typeof refreshed?.isBulkInstallation === 'boolean'
           ? refreshed.isBulkInstallation
@@ -394,15 +414,29 @@ export class GohighlevelService {
     return accessToken;
   }
 
-  private async getLocationAccessToken(locationId: string, forceRefresh = false): Promise<string> {
+  private async getLocationAccessToken(
+    locationId: string,
+    forceRefresh = false,
+  ): Promise<string> {
     const cachedLocationToken = this.cachedLocationTokens.get(locationId);
-    if (!forceRefresh && cachedLocationToken && this.isTokenStillValid(cachedLocationToken)) {
+    if (
+      !forceRefresh &&
+      cachedLocationToken &&
+      this.isTokenStillValid(cachedLocationToken)
+    ) {
       return cachedLocationToken.accessToken;
     }
 
-    if (!forceRefresh && this.locationAccessToken && locationId === this.oauthLocationId) {
+    if (
+      !forceRefresh &&
+      this.locationAccessToken &&
+      locationId === this.oauthLocationId
+    ) {
       const exp = this.extractJwtExp(this.locationAccessToken);
-      if (exp && exp - Math.floor(Date.now() / 1000) > this.tokenRefreshLeewaySeconds) {
+      if (
+        exp &&
+        exp - Math.floor(Date.now() / 1000) > this.tokenRefreshLeewaySeconds
+      ) {
         this.cachedLocationTokens.set(locationId, {
           accessToken: this.locationAccessToken,
           expiresAtUnix: exp,
@@ -433,17 +467,24 @@ export class GohighlevelService {
       locationId,
     });
 
-    const locationAccessToken = tokenResponse?.access_token as string | undefined;
+    const locationAccessToken = tokenResponse?.access_token as
+      | string
+      | undefined;
     const expiresIn = Number(tokenResponse?.expires_in ?? 0);
     if (!locationAccessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
-      throw new HttpException('Invalid location token response from GoHighLevel', 502);
+      throw new HttpException(
+        'Invalid location token response from GoHighLevel',
+        502,
+      );
     }
 
     const companyId =
       (tokenResponse?.companyId as string | undefined) || this.oauthCompanyId;
     const responseLocationId =
       (tokenResponse?.locationId as string | undefined) || locationId;
-    const refreshedLocationToken = tokenResponse?.refresh_token as string | undefined;
+    const refreshedLocationToken = tokenResponse?.refresh_token as
+      | string
+      | undefined;
     if (companyId && responseLocationId && refreshedLocationToken) {
       await this.persistTokenRecord({
         companyId,
@@ -456,12 +497,18 @@ export class GohighlevelService {
           typeof tokenResponse?.token_type === 'string'
             ? tokenResponse.token_type
             : undefined,
-        scope: typeof tokenResponse?.scope === 'string' ? tokenResponse.scope : undefined,
+        scope:
+          typeof tokenResponse?.scope === 'string'
+            ? tokenResponse.scope
+            : undefined,
         refreshTokenId:
           typeof tokenResponse?.refreshTokenId === 'string'
             ? tokenResponse.refreshTokenId
             : undefined,
-        userId: typeof tokenResponse?.userId === 'string' ? tokenResponse.userId : undefined,
+        userId:
+          typeof tokenResponse?.userId === 'string'
+            ? tokenResponse.userId
+            : undefined,
         isBulkInstallation:
           typeof tokenResponse?.isBulkInstallation === 'boolean'
             ? tokenResponse.isBulkInstallation
@@ -481,8 +528,13 @@ export class GohighlevelService {
     locationId: string | undefined,
     operation: (token: string) => Promise<T>,
   ): Promise<T> {
-    const resolvedLocationId = locationId ? this.resolveLocationId(locationId) : undefined;
-    const token = await this.resolveAccessToken(accessTokenOverride, resolvedLocationId);
+    const resolvedLocationId = locationId
+      ? this.resolveLocationId(locationId)
+      : undefined;
+    const token = await this.resolveAccessToken(
+      accessTokenOverride,
+      resolvedLocationId,
+    );
     try {
       return await operation(token);
     } catch (error) {
@@ -515,7 +567,7 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ?? (error as Error).message;
+          : (axiosError.response?.data ?? (error as Error).message);
       this.logger.warn(`Failed background token warmup: ${String(details)}`);
     }
   }
@@ -548,8 +600,11 @@ export class GohighlevelService {
           ? String(appointment.assignedUserId)
           : null,
         startAt:
-          parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : null,
-        endAt: parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
+          parsedStart && !Number.isNaN(parsedStart.getTime())
+            ? parsedStart
+            : null,
+        endAt:
+          parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
         title: appointment.title ? String(appointment.title) : null,
         status: appointment.appointmentStatus
           ? String(appointment.appointmentStatus)
@@ -573,8 +628,11 @@ export class GohighlevelService {
           ? String(appointment.assignedUserId)
           : null,
         startAt:
-          parsedStart && !Number.isNaN(parsedStart.getTime()) ? parsedStart : null,
-        endAt: parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
+          parsedStart && !Number.isNaN(parsedStart.getTime())
+            ? parsedStart
+            : null,
+        endAt:
+          parsedEnd && !Number.isNaN(parsedEnd.getTime()) ? parsedEnd : null,
         title: appointment.title ? String(appointment.title) : null,
         status: appointment.appointmentStatus
           ? String(appointment.appointmentStatus)
@@ -701,7 +759,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ?? 'Failed to refresh GoHighLevel token';
+          : (axiosError.response?.data ??
+            'Failed to refresh GoHighLevel token');
 
       this.logger.error('GoHighLevel refresh token exchange failed', details);
       throw new HttpException(details, status);
@@ -728,7 +787,10 @@ export class GohighlevelService {
       isBulkInstallation: payload.isBulkInstallation,
     });
 
-    if (payload.userType === this.agencyRefreshUserType && locationScope === AGENCY_LOCATION_SCOPE) {
+    if (
+      payload.userType === this.agencyRefreshUserType &&
+      locationScope === AGENCY_LOCATION_SCOPE
+    ) {
       this.cachedAgencyToken = this.createCachedToken(
         payload.accessToken,
         payload.expiresIn,
@@ -818,10 +880,13 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to generate GoHighLevel location token';
+          : (axiosError.response?.data ??
+            'Failed to generate GoHighLevel location token');
 
-      this.logger.error('GoHighLevel location token generation failed', details);
+      this.logger.error(
+        'GoHighLevel location token generation failed',
+        details,
+      );
       throw new HttpException(details, status);
     }
   }
@@ -860,7 +925,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ?? 'Failed to fetch GoHighLevel calendars';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel calendars');
 
       this.logger.error('GoHighLevel get calendars failed', details);
       throw new HttpException(details, status);
@@ -894,8 +960,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel calendar groups';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel calendar groups');
 
       this.logger.error('GoHighLevel get groups failed', details);
       throw new HttpException(details, status);
@@ -937,15 +1003,17 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel services catalog';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel services catalog');
 
       this.logger.error('GoHighLevel get services catalog failed', details);
       throw new HttpException(details, status);
     }
   }
 
-  async getCalendarServiceLocations(query: GetCalendarServiceLocationsQueryDto) {
+  async getCalendarServiceLocations(
+    query: GetCalendarServiceLocationsQueryDto,
+  ) {
     const locationId = this.resolveLocationId(query.locationId);
 
     try {
@@ -954,15 +1022,18 @@ export class GohighlevelService {
         locationId,
         async (token) =>
           firstValueFrom(
-            this.httpService.get(`${this.baseUrl}/calendars/services/locations`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Version: '2021-04-15',
+            this.httpService.get(
+              `${this.baseUrl}/calendars/services/locations`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+                params: {
+                  locationId,
+                },
               },
-              params: {
-                locationId,
-              },
-            }),
+            ),
           ),
       );
       return response.data;
@@ -972,8 +1043,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel service locations';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel service locations');
 
       this.logger.error('GoHighLevel get service locations failed', details);
       throw new HttpException(details, status);
@@ -1024,7 +1095,7 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ?? 'Failed to fetch GoHighLevel events';
+          : (axiosError.response?.data ?? 'Failed to fetch GoHighLevel events');
 
       this.logger.error('GoHighLevel get calendar events failed', details);
       throw new HttpException(details, status);
@@ -1063,8 +1134,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel appointment';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel appointment');
 
       this.logger.error('GoHighLevel get appointment failed', details);
       throw new HttpException(details, status);
@@ -1115,8 +1186,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel blocked slots';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel blocked slots');
 
       this.logger.error('GoHighLevel get blocked slots failed', details);
       throw new HttpException(details, status);
@@ -1153,8 +1224,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to create GoHighLevel contact';
+          : (axiosError.response?.data ??
+            'Failed to create GoHighLevel contact');
 
       this.logger.error('GoHighLevel create contact failed', details);
       throw new HttpException(details, status);
@@ -1187,8 +1258,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel contact';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel contact');
 
       this.logger.error('GoHighLevel get contact failed', details);
       throw new HttpException(details, status);
@@ -1221,8 +1292,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to delete GoHighLevel contact';
+          : (axiosError.response?.data ??
+            'Failed to delete GoHighLevel contact');
 
       this.logger.error('GoHighLevel delete contact failed', details);
       throw new HttpException(details, status);
@@ -1267,8 +1338,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to search GoHighLevel contacts';
+          : (axiosError.response?.data ??
+            'Failed to search GoHighLevel contacts');
 
       this.logger.error('GoHighLevel search contacts failed', details);
       throw new HttpException(details, status);
@@ -1371,8 +1442,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to create GoHighLevel appointment';
+          : (axiosError.response?.data ??
+            'Failed to create GoHighLevel appointment');
 
       this.logger.error('GoHighLevel create appointment failed', details);
       throw new HttpException(details, status);
@@ -1414,8 +1485,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to update GoHighLevel appointment';
+          : (axiosError.response?.data ??
+            'Failed to update GoHighLevel appointment');
 
       this.logger.error('GoHighLevel update appointment failed', details);
       throw new HttpException(details, status);
@@ -1437,13 +1508,16 @@ export class GohighlevelService {
         this.oauthLocationId || this.locationId,
         async (token) =>
           firstValueFrom(
-            this.httpService.delete(`${this.baseUrl}/calendars/events/${eventId}`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Version: '2021-04-15',
+            this.httpService.delete(
+              `${this.baseUrl}/calendars/events/${eventId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+                data: requestPayload,
               },
-              data: requestPayload,
-            }),
+            ),
           ),
       );
       return response.data;
@@ -1453,7 +1527,7 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ?? 'Failed to delete GoHighLevel event';
+          : (axiosError.response?.data ?? 'Failed to delete GoHighLevel event');
 
       this.logger.error('GoHighLevel delete event failed', details);
       throw new HttpException(details, status);
@@ -1489,7 +1563,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ?? 'Failed to fetch GoHighLevel calendar';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel calendar');
 
       this.logger.error('GoHighLevel get calendar by id failed', details);
       throw new HttpException(details, status);
@@ -1521,7 +1596,8 @@ export class GohighlevelService {
     };
     if (payload.title) requestPayload.title = payload.title;
     if (payload.calendarId) requestPayload.calendarId = payload.calendarId;
-    if (payload.assignedUserId) requestPayload.assignedUserId = payload.assignedUserId;
+    if (payload.assignedUserId)
+      requestPayload.assignedUserId = payload.assignedUserId;
     if (payload.endTime) requestPayload.endTime = payload.endTime;
 
     try {
@@ -1549,8 +1625,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to create GoHighLevel block slot';
+          : (axiosError.response?.data ??
+            'Failed to create GoHighLevel block slot');
 
       this.logger.error('GoHighLevel create block slot failed', details);
       throw new HttpException(details, status);
@@ -1576,7 +1652,8 @@ export class GohighlevelService {
     };
     if (payload.title !== undefined) requestPayload.title = payload.title;
     if (payload.calendarId) requestPayload.calendarId = payload.calendarId;
-    if (payload.assignedUserId) requestPayload.assignedUserId = payload.assignedUserId;
+    if (payload.assignedUserId)
+      requestPayload.assignedUserId = payload.assignedUserId;
     if (payload.startTime) requestPayload.startTime = payload.startTime;
     if (payload.endTime) requestPayload.endTime = payload.endTime;
 
@@ -1605,8 +1682,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to update GoHighLevel block slot';
+          : (axiosError.response?.data ??
+            'Failed to update GoHighLevel block slot');
 
       this.logger.error('GoHighLevel update block slot failed', details);
       throw new HttpException(details, status);
@@ -1621,7 +1698,10 @@ export class GohighlevelService {
       throw new HttpException('Missing calendarId', 400);
     }
     if (!Number.isFinite(query.startDate) || !Number.isFinite(query.endDate)) {
-      throw new HttpException('startDate and endDate are required numbers', 400);
+      throw new HttpException(
+        'startDate and endDate are required numbers',
+        400,
+      );
     }
     if (query.endDate < query.startDate) {
       throw new HttpException('endDate must be greater than startDate', 400);
@@ -1629,10 +1709,7 @@ export class GohighlevelService {
 
     const THIRTY_ONE_DAYS_MS = 31 * 24 * 60 * 60 * 1000;
     if (query.endDate - query.startDate > THIRTY_ONE_DAYS_MS) {
-      throw new HttpException(
-        'Date range cannot be more than 31 days',
-        400,
-      );
+      throw new HttpException('Date range cannot be more than 31 days', 400);
     }
 
     const params: Record<string, string | number | string[]> = {
@@ -1649,13 +1726,16 @@ export class GohighlevelService {
         this.oauthLocationId || this.locationId,
         async (token) =>
           firstValueFrom(
-            this.httpService.get(`${this.baseUrl}/calendars/${calendarId}/free-slots`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Version: '2021-04-15',
+            this.httpService.get(
+              `${this.baseUrl}/calendars/${calendarId}/free-slots`,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+                params,
               },
-              params,
-            }),
+            ),
           ),
       );
       return response.data;
@@ -1665,8 +1745,8 @@ export class GohighlevelService {
       const details =
         typeof axiosError.response?.data === 'string'
           ? axiosError.response.data
-          : axiosError.response?.data ??
-            'Failed to fetch GoHighLevel calendar free slots';
+          : (axiosError.response?.data ??
+            'Failed to fetch GoHighLevel calendar free slots');
 
       this.logger.error('GoHighLevel get calendar free slots failed', details);
       throw new HttpException(details, status);

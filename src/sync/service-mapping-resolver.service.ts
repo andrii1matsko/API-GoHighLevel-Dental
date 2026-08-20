@@ -63,11 +63,12 @@ export class ServiceMappingResolverService {
     ghlCalendarId: string,
     ghlAssignedUserId?: string | null,
   ): Promise<LeyrTarget> {
-    const calendarMapping =
-      await this.prisma.calendarServiceMapping.findUnique({
+    const calendarMapping = await this.prisma.calendarServiceMapping.findUnique(
+      {
         where: { ghlCalendarId },
         include: { facility: true },
-      });
+      },
+    );
 
     if (!calendarMapping) {
       this.logger.warn(
@@ -128,15 +129,16 @@ export class ServiceMappingResolverService {
       return this.ghlFallback();
     }
 
-    const calendarMapping =
-      await this.prisma.calendarServiceMapping.findUnique({
+    const calendarMapping = await this.prisma.calendarServiceMapping.findUnique(
+      {
         where: {
           leyrHealthcareServiceId_facilityMappingId: {
             leyrHealthcareServiceId,
             facilityMappingId: facilityMapping.id,
           },
         },
-      });
+      },
+    );
 
     if (!calendarMapping) {
       this.logger.warn(
@@ -185,10 +187,9 @@ export class ServiceMappingResolverService {
     let resourceId = this.defaultLeyrResourceId;
 
     if (ghlAssignedUserId) {
-      const anyStaffMapping =
-        await this.prisma.staffResourceMapping.findFirst({
-          where: { ghlUserId: ghlAssignedUserId },
-        });
+      const anyStaffMapping = await this.prisma.staffResourceMapping.findFirst({
+        where: { ghlUserId: ghlAssignedUserId },
+      });
       if (anyStaffMapping) {
         resourceId = anyStaffMapping.leyrResourceId;
       }

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma schema
+        run: pnpm exec prisma validate
+
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate
+
+      # Lint has substantial legacy debt; keep visible but non-blocking for now.
+      - name: Lint
+        continue-on-error: true
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test -- --ci --passWithNoTests
+
+      - name: Build
+        run: pnpm build

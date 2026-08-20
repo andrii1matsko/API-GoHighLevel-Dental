@@ -49,7 +49,9 @@ describe('LeyrMockService', () => {
 
       expect(stockholmPatients.length).toBeGreaterThan(0);
       expect(osloPatients.length).toBeGreaterThan(0);
-      expect(stockholmPatients.length + osloPatients.length).toBeLessThanOrEqual(4);
+      expect(
+        stockholmPatients.length + osloPatients.length,
+      ).toBeLessThanOrEqual(4);
     });
 
     it('filters by first name', async () => {
@@ -59,13 +61,20 @@ describe('LeyrMockService', () => {
     });
 
     it('filters by last name', async () => {
-      const result = await service.findPatients('cu-oslo-01', undefined, 'Hansen');
+      const result = await service.findPatients(
+        'cu-oslo-01',
+        undefined,
+        'Hansen',
+      );
       expect(result.length).toBe(1);
       expect(result[0].last_name).toBe('Hansen');
     });
 
     it('returns empty when no match', async () => {
-      const result = await service.findPatients('cu-stockholm-01', 'NonExistent');
+      const result = await service.findPatients(
+        'cu-stockholm-01',
+        'NonExistent',
+      );
       expect(result.length).toBe(0);
     });
   });
@@ -78,7 +87,10 @@ describe('LeyrMockService', () => {
     });
 
     it('returns null for non-existent patient', async () => {
-      const patient = await service.getPatient('cu-stockholm-01', 'non-existent');
+      const patient = await service.getPatient(
+        'cu-stockholm-01',
+        'non-existent',
+      );
       expect(patient).toBeNull();
     });
   });
@@ -171,7 +183,10 @@ describe('LeyrMockService', () => {
     };
 
     it('returns appointment with generated id', async () => {
-      const result = await service.createAppointment('cu-stockholm-01', payload);
+      const result = await service.createAppointment(
+        'cu-stockholm-01',
+        payload,
+      );
 
       expect(result).toBeInstanceOf(Array);
       expect(result.length).toBe(1);
@@ -215,7 +230,10 @@ describe('LeyrMockService', () => {
 
   describe('getMedicalNotes', () => {
     it('returns mock notes', async () => {
-      const notes = await service.getMedicalNotes('cu-stockholm-01', 'pat-se-001');
+      const notes = await service.getMedicalNotes(
+        'cu-stockholm-01',
+        'pat-se-001',
+      );
       expect(notes.length).toBe(1);
       expect(notes[0].patient_id).toBe('pat-se-001');
     });

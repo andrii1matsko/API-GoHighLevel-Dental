@@ -1,4 +1,12 @@
-import { Body, Controller, Headers, HttpCode, Ip, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  Ip,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
@@ -19,11 +27,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ summary: 'Authenticate and get access token' })
-  login(
-    @Body() body: LoginDto,
-    @Ip() ip: string,
-    @Req() req: Request,
-  ) {
+  login(@Body() body: LoginDto, @Ip() ip: string, @Req() req: Request) {
     return this.authService.login(body, ip, req.headers['user-agent']);
   }
 
@@ -35,6 +39,10 @@ export class AuthController {
     @Ip() ip: string,
     @Req() req: Request,
   ) {
-    return this.authService.logout(authorizationHeader, ip, req.headers['user-agent']);
+    return this.authService.logout(
+      authorizationHeader,
+      ip,
+      req.headers['user-agent'],
+    );
   }
 }

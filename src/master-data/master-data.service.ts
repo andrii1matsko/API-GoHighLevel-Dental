@@ -85,10 +85,7 @@ export class MasterDataService {
     return item;
   }
 
-  async updateHealthService(
-    id: string,
-    data: UpdateHealthServiceDto,
-  ) {
+  async updateHealthService(id: string, data: UpdateHealthServiceDto) {
     await this.ensureHealthServiceExists(id);
     return this.prisma.healthService.update({
       where: { id },

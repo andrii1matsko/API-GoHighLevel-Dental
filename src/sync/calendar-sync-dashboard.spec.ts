@@ -43,9 +43,9 @@ describe('CalendarSyncService – Dashboard endpoints', () => {
   describe('getSyncStatus()', () => {
     it('returns summary counts and direction breakdown', async () => {
       fakePrisma.appointmentSync.count
-        .mockResolvedValueOnce(5)   // pending
-        .mockResolvedValueOnce(90)  // success
-        .mockResolvedValueOnce(5)   // failed
+        .mockResolvedValueOnce(5) // pending
+        .mockResolvedValueOnce(90) // success
+        .mockResolvedValueOnce(5) // failed
         .mockResolvedValueOnce(100); // total
 
       fakePrisma.appointmentSync.groupBy.mockResolvedValueOnce([
@@ -163,16 +163,16 @@ describe('CalendarSyncService – Dashboard endpoints', () => {
   describe('getSyncHealth()', () => {
     it('returns healthy status when no failures', async () => {
       fakePrisma.appointmentSync.count
-        .mockResolvedValueOnce(50)  // totalAll
-        .mockResolvedValueOnce(50)  // successAll
-        .mockResolvedValueOnce(0)   // failedAll
-        .mockResolvedValueOnce(0)   // pendingAll
-        .mockResolvedValueOnce(5)   // lastHourTotal
-        .mockResolvedValueOnce(5)   // lastHourSuccess
-        .mockResolvedValueOnce(0)   // lastHourFailed
-        .mockResolvedValueOnce(20)  // last24hTotal
-        .mockResolvedValueOnce(20)  // last24hSuccess
-        .mockResolvedValueOnce(0);  // last24hFailed
+        .mockResolvedValueOnce(50) // totalAll
+        .mockResolvedValueOnce(50) // successAll
+        .mockResolvedValueOnce(0) // failedAll
+        .mockResolvedValueOnce(0) // pendingAll
+        .mockResolvedValueOnce(5) // lastHourTotal
+        .mockResolvedValueOnce(5) // lastHourSuccess
+        .mockResolvedValueOnce(0) // lastHourFailed
+        .mockResolvedValueOnce(20) // last24hTotal
+        .mockResolvedValueOnce(20) // last24hSuccess
+        .mockResolvedValueOnce(0); // last24hFailed
 
       fakePrisma.appointmentSync.findFirst
         .mockResolvedValueOnce({
@@ -199,15 +199,15 @@ describe('CalendarSyncService – Dashboard endpoints', () => {
     it('returns warning status when failures exist', async () => {
       fakePrisma.appointmentSync.count
         .mockResolvedValueOnce(100) // totalAll
-        .mockResolvedValueOnce(90)  // successAll
-        .mockResolvedValueOnce(5)   // failedAll
-        .mockResolvedValueOnce(5)   // pendingAll
-        .mockResolvedValueOnce(0)   // lastHourTotal
-        .mockResolvedValueOnce(0)   // lastHourSuccess
-        .mockResolvedValueOnce(0)   // lastHourFailed
-        .mockResolvedValueOnce(10)  // last24hTotal
-        .mockResolvedValueOnce(8)   // last24hSuccess
-        .mockResolvedValueOnce(2);  // last24hFailed
+        .mockResolvedValueOnce(90) // successAll
+        .mockResolvedValueOnce(5) // failedAll
+        .mockResolvedValueOnce(5) // pendingAll
+        .mockResolvedValueOnce(0) // lastHourTotal
+        .mockResolvedValueOnce(0) // lastHourSuccess
+        .mockResolvedValueOnce(0) // lastHourFailed
+        .mockResolvedValueOnce(10) // last24hTotal
+        .mockResolvedValueOnce(8) // last24hSuccess
+        .mockResolvedValueOnce(2); // last24hFailed
 
       fakePrisma.appointmentSync.findFirst
         .mockResolvedValueOnce(null)
@@ -239,10 +239,10 @@ describe('CalendarSyncService – Dashboard endpoints', () => {
 
     it('returns degraded status when too many pending rows', async () => {
       fakePrisma.appointmentSync.count
-        .mockResolvedValueOnce(200)  // totalAll
-        .mockResolvedValueOnce(100)  // successAll
-        .mockResolvedValueOnce(0)    // failedAll
-        .mockResolvedValueOnce(100)  // pendingAll >= 50 => degraded
+        .mockResolvedValueOnce(200) // totalAll
+        .mockResolvedValueOnce(100) // successAll
+        .mockResolvedValueOnce(0) // failedAll
+        .mockResolvedValueOnce(100) // pendingAll >= 50 => degraded
         .mockResolvedValueOnce(0)
         .mockResolvedValueOnce(0)
         .mockResolvedValueOnce(0)
