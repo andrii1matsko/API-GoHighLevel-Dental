@@ -13,6 +13,9 @@ jobs:
   ci:
     name: Build & Test
     runs-on: ubuntu-latest
+    env:
+      # Prisma validate/generate only need a syntactically valid URL in CI
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4
