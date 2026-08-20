@@ -4,11 +4,13 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   Param,
   Post,
   Put,
   Query,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ApiBadRequestResponse,
   ApiOkResponse,
@@ -17,6 +19,7 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+import { CalendarSyncService } from '../../sync/calendar-sync.service';
 import { GohighlevelService } from './gohighlevel.service';
 import { RefreshGohighlevelTokenDto } from './dto/refresh-token.dto';
 import { GohighlevelTokenResponseDto } from './dto/token-response.dto';
@@ -52,7 +55,34 @@ import { GhlAppointmentMutationWebhookDto } from './dto/webhook-appointment-muta
 @ApiTags('GoHighLevel')
 @Controller('gohighlevel')
 export class GohighlevelController {
-  constructor(private readonly gohighlevelService: GohighlevelService) {}
+  private readonly logger = new Logger(GohighlevelController.name);
+
+  constructor(
+    private readonly gohighlevelService: GohighlevelService,
+    private readonly calendarSyncService: CalendarSyncService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  private triggerImmediateSyncIfEnabled(queuedSync: boolean): void {
+    if (!queuedSync) {
+      return;
+    }
+
+    const enabled =
+      this.configService.get<string>('SYNC_IMMEDIATE_ON_WEBHOOK', 'true') ===
+      'true';
+    if (!enabled) {
+      return;
+    }
+
+    void this.calendarSyncService
+      .syncAppointments('webhook')
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : 'Unknown sync error';
+        this.logger.warn(`Webhook-triggered sync failed: ${message}`);
+      });
+  }
 
   @Post('oauth/token/refresh')
   @HttpCode(200)
@@ -483,7 +513,7 @@ export class GohighlevelController {
     },
   })
   async appointmentCreateWebhook(@Body() body: GhlAppointmentCreateWebhookDto) {
-    return this.gohighlevelService.ingestAppointmentCreateWebhook(
+    const result = await this.gohighlevelService.ingestAppointmentCreateWebhook(
       {
         locationId: body.locationId,
         appointment: {
@@ -493,6 +523,8 @@ export class GohighlevelController {
       },
       { enqueueSync: true },
     );
+    this.triggerImmediateSyncIfEnabled(result.queuedSync);
+    return result;
   }
 
   @Post('webhooks/appointments/delete')
@@ -500,14 +532,14 @@ export class GohighlevelController {
   @ApiOperation({
     summary: 'GoHighLevel webhook receiver for AppointmentDelete events',
   })
-  appointmentDeleteWebhook(
+  async appointmentDeleteWebhook(
     @Body() body: GhlAppointmentMutationWebhookDto,
   ) {
     if (body.type !== 'AppointmentDelete') {
       return { accepted: false, reason: 'Wrong webhook type for endpoint' };
     }
 
-    return this.gohighlevelService.ingestAppointmentMutationWebhook(
+    const result = await this.gohighlevelService.ingestAppointmentMutationWebhook(
       {
         locationId: body.locationId,
         appointment: body.appointment as unknown as Record<string, unknown>,
@@ -515,6 +547,8 @@ export class GohighlevelController {
       'AppointmentDelete',
       { enqueueSync: true },
     );
+    this.triggerImmediateSyncIfEnabled(result.queuedSync);
+    return result;
   }
 
   @Post('webhooks/appointments/update')
@@ -522,14 +556,14 @@ export class GohighlevelController {
   @ApiOperation({
     summary: 'GoHighLevel webhook receiver for AppointmentUpdate events',
   })
-  appointmentUpdateWebhook(
+  async appointmentUpdateWebhook(
     @Body() body: GhlAppointmentMutationWebhookDto,
   ) {
     if (body.type !== 'AppointmentUpdate') {
       return { accepted: false, reason: 'Wrong webhook type for endpoint' };
     }
 
-    return this.gohighlevelService.ingestAppointmentMutationWebhook(
+    const result = await this.gohighlevelService.ingestAppointmentMutationWebhook(
       {
         locationId: body.locationId,
         appointment: body.appointment as unknown as Record<string, unknown>,
@@ -537,6 +571,8 @@ export class GohighlevelController {
       'AppointmentUpdate',
       { enqueueSync: true },
     );
+    this.triggerImmediateSyncIfEnabled(result.queuedSync);
+    return result;
   }
 
   @Put('calendars/events/appointments/:eventId')

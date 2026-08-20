@@ -1,13 +1,14 @@
 import { HttpModule, HttpService } from '@nestjs/axios';
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CalendarSyncModule } from '../../sync/calendar-sync.module';
 import { GohighlevelController } from './gohighlevel.controller';
 import { GohighlevelService } from './gohighlevel.service';
 import { GohighlevelMockService } from './gohighlevel-mock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Module({
-  imports: [HttpModule],
+  imports: [HttpModule, forwardRef(() => CalendarSyncModule)],
   controllers: [GohighlevelController],
   providers: [
     {

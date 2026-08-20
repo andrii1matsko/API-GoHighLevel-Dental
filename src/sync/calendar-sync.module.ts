@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { GohighlevelModule } from '../integrations/gohighlevel/gohighlevel.module';
 import { LeyrModule } from '../integrations/leyr/leyr.module';
 import { CalendarSyncController } from './calendar-sync.controller';
@@ -9,7 +9,7 @@ import { ServiceMappingResolverService } from './service-mapping-resolver.servic
 import { MappingsController } from './mappings.controller';
 
 @Module({
-  imports: [GohighlevelModule, LeyrModule],
+  imports: [forwardRef(() => GohighlevelModule), LeyrModule],
   controllers: [CalendarSyncController, MappingsController],
   providers: [
     CalendarSyncService,
@@ -17,6 +17,10 @@ import { MappingsController } from './mappings.controller';
     IdentityResolverService,
     ServiceMappingResolverService,
   ],
-  exports: [IdentityResolverService, ServiceMappingResolverService],
+  exports: [
+    CalendarSyncService,
+    IdentityResolverService,
+    ServiceMappingResolverService,
+  ],
 })
 export class CalendarSyncModule {}
