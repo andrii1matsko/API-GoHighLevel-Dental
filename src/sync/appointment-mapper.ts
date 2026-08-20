@@ -35,21 +35,28 @@ export function mapGhlToLeyrPayload(input: GhlToLeyrInput): {
     );
   }
 
+  const payload: CreateLeyrAppointmentDto = {
+    start: ghlAppointment.startAt.toISOString(),
+    end: ghlAppointment.endAt.toISOString(),
+    healthcare_service_id: leyrTarget.healthcareServiceId,
+    resource_id: leyrTarget.resourceId,
+    patient_id: leyrPatientId,
+    comment: buildLeyrComment(
+      ghlAppointment.title,
+      ghlAppointment.ghlAppointmentId,
+    ),
+  };
+
+  // Opus validates body care_unit_id as ClinicID (X-GUID). Leyr care unit IDs
+  // use a different format — the URL path already scopes the clinic.
+  if (leyrTarget.emr.toLowerCase() !== 'opus') {
+    payload.care_unit_id = leyrTarget.careUnitId;
+  }
+
   return {
     careUnitId: leyrTarget.careUnitId,
     emr: leyrTarget.emr,
-    payload: {
-      start: ghlAppointment.startAt.toISOString(),
-      end: ghlAppointment.endAt.toISOString(),
-      healthcare_service_id: leyrTarget.healthcareServiceId,
-      resource_id: leyrTarget.resourceId,
-      patient_id: leyrPatientId,
-      care_unit_id: leyrTarget.careUnitId,
-      comment: buildLeyrComment(
-        ghlAppointment.title,
-        ghlAppointment.ghlAppointmentId,
-      ),
-    },
+    payload,
   };
 }
 
