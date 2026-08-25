@@ -78,7 +78,7 @@ export class ServiceMappingResolverService {
     }
 
     const { facility } = calendarMapping;
-    let resourceId = this.defaultLeyrResourceId;
+    let resourceId = '';
 
     if (ghlAssignedUserId) {
       const staffMapping = await this.prisma.staffResourceMapping.findUnique({
@@ -94,7 +94,20 @@ export class ServiceMappingResolverService {
         resourceId = staffMapping.leyrResourceId;
       } else {
         this.logger.warn(
-          `No StaffResourceMapping for GHL user ${ghlAssignedUserId} in facility ${facility.id} — using default resource`,
+          `No StaffResourceMapping for GHL user ${ghlAssignedUserId} in facility ${facility.id} — will not fall back to env default (wrong EMR risk)`,
+        );
+      }
+    }
+
+    if (!resourceId) {
+      const anyStaff = await this.prisma.staffResourceMapping.findFirst({
+        where: { facilityMappingId: facility.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (anyStaff) {
+        resourceId = anyStaff.leyrResourceId;
+        this.logger.warn(
+          `Using first staff resource ${resourceId} for facility ${facility.id} as fallback`,
         );
       }
     }

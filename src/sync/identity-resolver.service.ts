@@ -96,7 +96,7 @@ export class IdentityResolverService {
 
     const emrsRequiringPersonnummer = this.config.get<string>(
       'SYNC_LEYR_EMRS_REQUIRING_PERSONNUMMER',
-      'opus',
+      'opus,muntra',
     );
     this.emrsRequiringPersonnummer = new Set(
       emrsRequiringPersonnummer
@@ -198,6 +198,11 @@ export class IdentityResolverService {
     const { careUnitId, emr } =
       await this.resolveCareUnitForLocation(ghlLocationId);
 
+    const personnummer = this.extractPersonnummer(contact);
+    if (this.requiresPersonnummer(emr) && !personnummer) {
+      throw new Error(this.missingPersonnummerMessage(emr, ghlContactId));
+    }
+
     let leyrPatientId: string;
 
     const matchedPatient = this.supportsPatientSearch(emr)
@@ -213,9 +218,13 @@ export class IdentityResolverService {
       : null;
 
     if (matchedPatient) {
-      leyrPatientId = String(matchedPatient.id ?? matchedPatient.emr_id);
+      leyrPatientId = this.toAppointmentPatientId(
+        emr,
+        matchedPatient,
+        personnummer,
+      );
       this.logger.log(
-        `Matched GHL contact ${ghlContactId} → existing Leyr patient ${leyrPatientId}`,
+        `Matched GHL contact ${ghlContactId} → Leyr patient ${leyrPatientId}`,
       );
     } else {
       if (!this.supportsPatientSearch(emr)) {
@@ -223,7 +232,6 @@ export class IdentityResolverService {
           `EMR "${emr}" has no patient search — creating patient directly (idempotent, EHR dedupes)`,
         );
       }
-      const personnummer = this.extractPersonnummer(contact);
 
       leyrPatientId = await this.createLeyrPatientFromGhlContact(
         careUnitId,
@@ -477,6 +485,38 @@ export class IdentityResolverService {
     return this.emrsRequiringDobOrPersonnummer.has(emr.toLowerCase());
   }
 
+  private missingPersonnummerMessage(
+    emr: string,
+    ghlContactId: string,
+  ): string {
+    if (emr.toLowerCase() === 'muntra') {
+      return `GHL contact ${ghlContactId} has no Swedish personnummer — Muntra requires a 12-digit personnummer in a custom field (configure SYNC_GHL_PERSONNUMMER_FIELD_ID). Appointments must use patient_id se_personal_number:YYYYMMDDXXXX.`;
+    }
+    return `GHL contact ${ghlContactId} has no Personnummer — Opus requires a Norwegian fødselsnummer in custom field (configure SYNC_GHL_PERSONNUMMER_FIELD_ID)`;
+  }
+
+  /**
+   * Muntra appointment create rejects bare EMR ids without personnummer (Leyr 500).
+   * Prefer typed Swedish personal number when available.
+   */
+  private toAppointmentPatientId(
+    emr: string,
+    patient: LeyrPatientRecord,
+    personnummer: string | null,
+  ): string {
+    if (emr.toLowerCase() === 'muntra') {
+      const pnrDigits = (personnummer || patient.external_id || '')
+        .toString()
+        .replace(/\D/g, '');
+      if (pnrDigits.length === 12) {
+        return `se_personal_number:${pnrDigits}`;
+      }
+      const emrId = patient.emr_id ?? patient.id;
+      if (emrId) return `emr_id:${emrId}`;
+    }
+    return String(patient.id ?? patient.emr_id);
+  }
+
   private extractPersonnummer(contact: GhlContactRecord): string | null {
     const fields = contact.customFields ?? [];
 
@@ -532,18 +572,13 @@ export class IdentityResolverService {
 
     if (this.requiresPersonnummer(emr)) {
       if (!personnummer) {
-        throw new Error(
-          `GHL contact ${ghlContactId} has no Personnummer — Opus requires a Norwegian fødselsnummer in custom field (configure SYNC_GHL_PERSONNUMMER_FIELD_ID)`,
-        );
+        throw new Error(this.missingPersonnummerMessage(emr, ghlContactId));
       }
       externalId = personnummer;
     } else if (personnummer) {
       // Nordic EHRs (e.g. Muntra) treat external_id as national personal number.
       externalId = personnummer;
-    } else if (
-      this.requiresDobOrPersonnummer(emr) &&
-      !dateOfBirth
-    ) {
+    } else if (this.requiresDobOrPersonnummer(emr) && !dateOfBirth) {
       throw new Error(
         `GHL contact ${ghlContactId} needs Date of Birth or Personnummer for EMR "${emr}" (Muntra requires one of them)`,
       );
@@ -565,6 +600,11 @@ export class IdentityResolverService {
 
     const created = Array.isArray(response) ? response[0] : response;
     const record = created as { id?: string; emr_id?: string } | undefined;
+
+    if (emr.toLowerCase() === 'muntra' && personnummer) {
+      return `se_personal_number:${personnummer}`;
+    }
+
     // Muntra appointment create expects the EMR patient id; prefer emr_id when present.
     const patientId =
       emr.toLowerCase() === 'muntra'
