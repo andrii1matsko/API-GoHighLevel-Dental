@@ -44,18 +44,19 @@ describe('mapGhlToLeyrPayload', () => {
     expect(mapped.payload.healthcare_service_id).toBe('26105');
   });
 
-  it('includes care_unit_id for non-Opus EMRs', () => {
+  it('omits care_unit_id for non-Opus EMRs too (path already scopes clinic)', () => {
     const mapped = mapGhlToLeyrPayload({
       ghlAppointment: fakeGhlAppointment(),
       leyrPatientId: 'leyr-patient-1',
       leyrTarget: {
         careUnitId: 'cu-stockholm-01',
-        emr: 'mock',
+        emr: 'muntra',
         healthcareServiceId: 'hs-1',
         resourceId: 'res-1',
       },
     });
 
-    expect(mapped.payload.care_unit_id).toBe('cu-stockholm-01');
+    expect(mapped.careUnitId).toBe('cu-stockholm-01');
+    expect(mapped.payload.care_unit_id).toBeUndefined();
   });
 });

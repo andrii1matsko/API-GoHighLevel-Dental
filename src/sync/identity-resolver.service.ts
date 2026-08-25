@@ -57,6 +57,7 @@ export class IdentityResolverService {
   private readonly emrsWithoutPatientSearch: Set<string>;
   private readonly personnummerFieldId: string;
   private readonly emrsRequiringPersonnummer: Set<string>;
+  private readonly emrsRequiringDobOrPersonnummer: Set<string>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -99,6 +100,17 @@ export class IdentityResolverService {
     );
     this.emrsRequiringPersonnummer = new Set(
       emrsRequiringPersonnummer
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    );
+
+    const emrsRequiringDobOrPersonnummer = this.config.get<string>(
+      'SYNC_LEYR_EMRS_REQUIRING_DOB_OR_PERSONNUMMER',
+      'muntra',
+    );
+    this.emrsRequiringDobOrPersonnummer = new Set(
+      emrsRequiringDobOrPersonnummer
         .split(',')
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
@@ -461,6 +473,10 @@ export class IdentityResolverService {
     return this.emrsRequiringPersonnummer.has(emr.toLowerCase());
   }
 
+  private requiresDobOrPersonnummer(emr: string): boolean {
+    return this.emrsRequiringDobOrPersonnummer.has(emr.toLowerCase());
+  }
+
   private extractPersonnummer(contact: GhlContactRecord): string | null {
     const fields = contact.customFields ?? [];
 
@@ -524,6 +540,13 @@ export class IdentityResolverService {
     } else if (personnummer) {
       // Nordic EHRs (e.g. Muntra) treat external_id as national personal number.
       externalId = personnummer;
+    } else if (
+      this.requiresDobOrPersonnummer(emr) &&
+      !dateOfBirth
+    ) {
+      throw new Error(
+        `GHL contact ${ghlContactId} needs Date of Birth or Personnummer for EMR "${emr}" (Muntra requires one of them)`,
+      );
     }
     // Never send the GHL contact id as external_id — Muntra rejects it with 500.
 
@@ -542,7 +565,11 @@ export class IdentityResolverService {
 
     const created = Array.isArray(response) ? response[0] : response;
     const record = created as { id?: string; emr_id?: string } | undefined;
-    const patientId = record?.id ?? record?.emr_id;
+    // Muntra appointment create expects the EMR patient id; prefer emr_id when present.
+    const patientId =
+      emr.toLowerCase() === 'muntra'
+        ? (record?.emr_id ?? record?.id)
+        : (record?.id ?? record?.emr_id);
 
     if (!patientId) {
       throw new Error(

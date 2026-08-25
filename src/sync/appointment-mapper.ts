@@ -47,12 +47,8 @@ export function mapGhlToLeyrPayload(input: GhlToLeyrInput): {
     ),
   };
 
-  // Opus validates body care_unit_id as ClinicID (X-GUID). Leyr care unit IDs
-  // use a different format — the URL path already scopes the clinic.
-  if (leyrTarget.emr.toLowerCase() !== 'opus') {
-    payload.care_unit_id = leyrTarget.careUnitId;
-  }
-
+  // URL path already scopes the clinic. Sending care_unit_id in the body
+  // breaks some EHRs (Opus ClinicID mismatch; Muntra can reject patient_id).
   return {
     careUnitId: leyrTarget.careUnitId,
     emr: leyrTarget.emr,
