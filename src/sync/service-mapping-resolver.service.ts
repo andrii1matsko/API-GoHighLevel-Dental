@@ -102,7 +102,7 @@ export class ServiceMappingResolverService {
     if (!resourceId) {
       const anyStaff = await this.prisma.staffResourceMapping.findFirst({
         where: { facilityMappingId: facility.id },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { id: 'asc' },
       });
       if (anyStaff) {
         resourceId = anyStaff.leyrResourceId;
