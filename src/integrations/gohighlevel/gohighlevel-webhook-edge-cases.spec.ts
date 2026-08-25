@@ -18,6 +18,9 @@ function makePrismaStub() {
     appointmentSync: {
       upsert: jest.fn().mockResolvedValue({}),
     },
+    appointmentLink: {
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
   } as unknown as PrismaService;
 }
 

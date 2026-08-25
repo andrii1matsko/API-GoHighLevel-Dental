@@ -288,6 +288,15 @@ export class GetContactQueryDto {
   @IsOptional()
   @IsString()
   accessToken?: string;
+
+  @ApiPropertyOptional({
+    example: 'YqUlz1ErFupeWjrXiiDJ',
+    description:
+      'GHL location that owns the contact. Required for multi-location; defaults to GHL_LOCATION_ID_OAUTH.',
+  })
+  @IsOptional()
+  @IsString()
+  locationId?: string;
 }
 
 export class DeleteContactQueryDto {

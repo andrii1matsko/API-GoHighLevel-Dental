@@ -426,12 +426,13 @@ export class LeyrPollingService {
       return;
     }
 
-    // Check if there's already a pending/failed sync for this appointment + action
+    // Check if there's already a pending sync for this appointment + action.
+    // Do not block on `failed`/`dead_letter` — those are either retrying or terminal.
     const existingPending = await this.prisma.appointmentSync.findFirst({
       where: {
         sourceExternalId: leyrAppointmentId,
         sourceSystem,
-        status: { in: ['pending', 'failed'] },
+        status: { in: ['pending', 'processing'] },
       },
     });
 

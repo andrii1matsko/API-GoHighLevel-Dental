@@ -260,10 +260,27 @@ export class CalendarSyncService {
 
   async syncAppointments(trigger: string) {
     const now = new Date();
+    const staleProcessingBefore = new Date(now.getTime() - 5 * 60 * 1000);
     const pendingRows = await this.prismaService.appointmentSync.findMany({
       where: {
-        status: 'pending',
-        OR: [{ nextRetryAfter: null }, { nextRetryAfter: { lte: now } }],
+        OR: [
+          {
+            status: { in: ['pending', 'failed'] },
+            AND: [
+              {
+                OR: [
+                  { nextRetryAfter: null },
+                  { nextRetryAfter: { lte: now } },
+                ],
+              },
+            ],
+          },
+          {
+            // Recover rows claimed by a crashed worker
+            status: 'processing',
+            updatedAt: { lte: staleProcessingBefore },
+          },
+        ],
       },
       orderBy: { createdAt: 'asc' },
       take: 30,
@@ -277,6 +294,17 @@ export class CalendarSyncService {
     let failedCount = 0;
 
     for (const row of pendingRows) {
+      const claimed = await this.prismaService.appointmentSync.updateMany({
+        where: {
+          id: row.id,
+          status: { in: ['pending', 'failed', 'processing'] },
+        },
+        data: { status: 'processing' },
+      });
+      if (claimed.count === 0) {
+        continue;
+      }
+
       try {
         let success = false;
         if (row.direction === 'GHL_TO_LEYR') {
@@ -294,6 +322,17 @@ export class CalendarSyncService {
           syncedCount += 1;
         } else {
           failedCount += 1;
+          // Safety: never leave a claimed row stuck in `processing`
+          const current = await this.prismaService.appointmentSync.findUnique({
+            where: { id: row.id },
+            select: { status: true },
+          });
+          if (current?.status === 'processing') {
+            await this.markRowFailed(
+              row.id,
+              'Sync returned failure without updating row status',
+            );
+          }
         }
       } catch (error) {
         failedCount += 1;
@@ -345,6 +384,8 @@ export class CalendarSyncService {
     await this.prismaService.appointmentSync.update({
       where: { id: rowId },
       data: {
+        // Keep retryable rows as `failed` (not pending) for metrics, but
+        // syncAppointments selects both pending+failed with nextRetryAfter.
         status: isDeadLetter ? 'dead_letter' : 'failed',
         errorMessage,
         retryCount: newRetryCount,
@@ -757,12 +798,12 @@ export class CalendarSyncService {
         where: { id: rowId },
         data: {
           sourceSystem: 'GHL:AppointmentCreate',
-          status: 'pending',
+          status: 'processing',
           errorMessage: null,
           nextRetryAfter: null,
         },
       });
-      return false;
+      return this.processGhlToLeyr(rowId);
     }
 
     if (!ghlAppointment.startAt || !ghlAppointment.endAt) {
@@ -784,28 +825,28 @@ export class CalendarSyncService {
     }
 
     // Use Leyr PATCH endpoint to update the existing appointment
-    const leyrStatus =
-      ghlAppointment.status === 'cancelled' ? 'cancelled' : undefined;
+    const leyrStatus = mapGhlStatusToLeyr(ghlAppointment.status);
+    const isCancelled = leyrStatus === 'cancelled';
 
     await this.leyrService.updateAppointment(
       link.leyrAppointmentId,
       leyrTarget.careUnitId,
       {
         status: leyrStatus,
-        start: leyrStatus ? undefined : ghlAppointment.startAt.toISOString(),
-        end: leyrStatus ? undefined : ghlAppointment.endAt.toISOString(),
-        healthcare_service_id: leyrStatus
+        start: isCancelled ? undefined : ghlAppointment.startAt.toISOString(),
+        end: isCancelled ? undefined : ghlAppointment.endAt.toISOString(),
+        healthcare_service_id: isCancelled
           ? undefined
           : leyrTarget.healthcareServiceId,
-        resource_id: leyrStatus ? undefined : leyrTarget.resourceId,
-        comment: leyrStatus ? undefined : ghlAppointment.title || undefined,
+        resource_id: isCancelled ? undefined : leyrTarget.resourceId,
+        comment: isCancelled ? undefined : ghlAppointment.title || undefined,
       },
       leyrTarget.emr,
     );
 
     // Update or recreate the GHL block slot
     let newBlockSlotId = link.ghlBlockSlotId;
-    if (leyrStatus === 'cancelled' && link.ghlBlockSlotId) {
+    if (isCancelled && link.ghlBlockSlotId) {
       await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
       newBlockSlotId = null;
     } else if (link.ghlBlockSlotId) {
@@ -902,9 +943,14 @@ export class CalendarSyncService {
         `Cancelled Leyr appointment ${link.leyrAppointmentId} via PATCH`,
       );
     } catch (err) {
-      this.logger.warn(
-        `Leyr cancel failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+      const message =
+        err instanceof Error ? err.message : 'Leyr cancel failed';
+      this.logger.warn(`Leyr cancel failed: ${message}`);
+      await this.markRowFailed(
+        rowId,
+        `Leyr cancel failed — keeping AppointmentLink for retry: ${message}`,
       );
+      return false;
     }
 
     // Delete the associated GHL block slot if one exists
@@ -959,14 +1005,36 @@ export class CalendarSyncService {
     });
 
     if (!link) {
+      const row = await this.prismaService.appointmentSync.findUnique({
+        where: { id: rowId },
+        select: { sourceSystem: true },
+      });
+      const mutationType =
+        typeof row?.sourceSystem === 'string' && row.sourceSystem.includes(':')
+          ? row.sourceSystem.split(':')[1]
+          : 'AppointmentUpdate';
+
+      if (mutationType === 'AppointmentCancel') {
+        await this.markRowFailed(
+          rowId,
+          'No AppointmentLink for Leyr cancel — nothing to delete in GHL',
+        );
+        return false;
+      }
+
       this.logger.warn(
-        `Leyr update for ${leyrAppointmentId} has no AppointmentLink — skipping`,
+        `Leyr update for ${leyrAppointmentId} has no AppointmentLink — treating as new create`,
       );
-      await this.markRowFailed(
-        rowId,
-        'No AppointmentLink for Leyr update — appointment was never synced',
-      );
-      return false;
+      await this.prismaService.appointmentSync.update({
+        where: { id: rowId },
+        data: {
+          sourceSystem: 'LEYR:AppointmentCreate',
+          status: 'processing',
+          errorMessage: null,
+          nextRetryAfter: null,
+        },
+      });
+      return this.processLeyrToGhl(rowId);
     }
 
     const leyrAppointment = await this.prismaService.leyrAppointment.findUnique(

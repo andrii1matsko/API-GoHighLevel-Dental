@@ -165,7 +165,9 @@ export class IdentityResolverService {
     });
     if (existing) return existing;
 
-    const contactResponse = await this.ghlService.getContact(ghlContactId, {});
+    const contactResponse = await this.ghlService.getContact(ghlContactId, {
+      locationId: ghlLocationId,
+    });
     const contact = ((contactResponse as { contact?: GhlContactRecord })
       ?.contact ?? contactResponse) as GhlContactRecord;
 
@@ -478,13 +480,6 @@ export class IdentityResolverService {
         );
         if (value) return value;
       }
-    }
-
-    for (const field of fields) {
-      const value = this.normalizePersonnummer(
-        field.value ?? field.field_value,
-      );
-      if (value) return value;
     }
 
     return null;

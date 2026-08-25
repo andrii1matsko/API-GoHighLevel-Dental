@@ -654,6 +654,22 @@ export class GohighlevelService {
       return;
     }
 
+    // Skip echo webhooks caused by our own Leyr → GHL writes
+    const existingLink = await this.prismaService.appointmentLink.findFirst({
+      where: { ghlAppointmentId },
+      select: { echoGuardUntil: true, lastSyncDirection: true },
+    });
+    if (
+      existingLink?.echoGuardUntil &&
+      existingLink.echoGuardUntil > new Date() &&
+      existingLink.lastSyncDirection === 'LEYR_TO_GHL'
+    ) {
+      this.logger.log(
+        `Skipping GHL→Leyr enqueue for ${ghlAppointmentId} — echo guard active (${sourceAction})`,
+      );
+      return;
+    }
+
     const idempotencyKey = `GHL_TO_LEYR:${sourceAction}:${ghlAppointmentId}`;
     await this.prismaService.appointmentSync.upsert({
       where: { idempotencyKey },
@@ -668,7 +684,11 @@ export class GohighlevelService {
       },
       update: {
         status: 'pending',
+        sourceSystem: `GHL:${sourceAction}`,
+        ghlAppointmentId: persisted.id,
         errorMessage: null,
+        nextRetryAfter: null,
+        retryCount: 0,
       },
     });
   }
@@ -1237,10 +1257,12 @@ export class GohighlevelService {
       throw new HttpException('Missing contactId', 400);
     }
 
+    const locationId = this.resolveLocationId(query.locationId);
+
     try {
       const response = await this.runWithManagedLocationToken(
         query.accessToken,
-        this.oauthLocationId || this.locationId,
+        locationId,
         async (token) =>
           firstValueFrom(
             this.httpService.get(`${this.baseUrl}/contacts/${contactId}`, {
