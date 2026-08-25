@@ -474,7 +474,12 @@ export class IdentityResolverService {
 
     for (const field of fields) {
       const key = (field.key ?? '').toLowerCase();
-      if (key.includes('personnummer') || key.includes('fødselsnummer')) {
+      if (
+        key.includes('personnummer') ||
+        key.includes('personnr') ||
+        key.includes('fødselsnummer') ||
+        key.includes('fodselsnummer')
+      ) {
         const value = this.normalizePersonnummer(
           field.value ?? field.field_value,
         );
@@ -485,11 +490,15 @@ export class IdentityResolverService {
     return null;
   }
 
-  /** Strip non-digits; accept valid 11-digit Norwegian fødselsnummer. */
+  /**
+   * Strip non-digits; accept Norwegian 11-digit fødselsnummer or
+   * Swedish 12-digit personnummer (YYYYMMDDXXXX) as used by Muntra.
+   */
   private normalizePersonnummer(value: unknown): string | null {
     if (value === null || value === undefined) return null;
     const digits = String(value).replace(/\D/g, '');
-    return digits.length === 11 ? digits : null;
+    if (digits.length === 11 || digits.length === 12) return digits;
+    return null;
   }
 
   private async createLeyrPatientFromGhlContact(
@@ -512,9 +521,11 @@ export class IdentityResolverService {
         );
       }
       externalId = personnummer;
-    } else if (this.supportsPatientSearch(emr)) {
-      externalId = ghlContactId;
+    } else if (personnummer) {
+      // Nordic EHRs (e.g. Muntra) treat external_id as national personal number.
+      externalId = personnummer;
     }
+    // Never send the GHL contact id as external_id — Muntra rejects it with 500.
 
     const response = await this.leyrService.createPatient(
       careUnitId,
