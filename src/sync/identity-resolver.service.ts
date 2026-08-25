@@ -365,6 +365,21 @@ export class IdentityResolverService {
       );
     }
 
+    const existingByGhl = await this.prisma.identityMapping.findUnique({
+      where: {
+        ghlContactId_ghlLocationId: {
+          ghlContactId,
+          ghlLocationId: locationId,
+        },
+      },
+    });
+    if (existingByGhl) {
+      this.logger.warn(
+        `Identity already exists for GHL contact ${ghlContactId} at ${locationId} (leyr=${existingByGhl.leyrPatientId}); reusing instead of creating for ${leyrPatientId}`,
+      );
+      return existingByGhl;
+    }
+
     return this.prisma.identityMapping.create({
       data: {
         ghlContactId,
@@ -520,8 +535,13 @@ export class IdentityResolverService {
   private extractPersonnummer(contact: GhlContactRecord): string | null {
     const fields = contact.customFields ?? [];
 
-    if (this.personnummerFieldId) {
-      const match = fields.find((f) => f.id === this.personnummerFieldId);
+    const configuredIds = this.personnummerFieldId
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    for (const fieldId of configuredIds) {
+      const match = fields.find((f) => f.id === fieldId);
       const value = this.normalizePersonnummer(
         match?.value ?? match?.field_value,
       );
@@ -540,6 +560,20 @@ export class IdentityResolverService {
           field.value ?? field.field_value,
         );
         if (value) return value;
+      }
+    }
+
+    // GHL often returns customFields as { id, value } without key — accept
+    // any field whose value looks like a Nordic personal number.
+    for (const field of fields) {
+      const value = this.normalizePersonnummer(
+        field.value ?? field.field_value,
+      );
+      if (value) {
+        this.logger.debug(
+          `Using custom field ${field.id ?? '(unknown)'} as personnummer (no key match)`,
+        );
+        return value;
       }
     }
 
