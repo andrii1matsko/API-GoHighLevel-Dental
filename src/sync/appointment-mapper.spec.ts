@@ -1,5 +1,8 @@
-import { GhlAppointment } from '@prisma/client';
-import { mapGhlToLeyrPayload } from './appointment-mapper';
+import { GhlAppointment, LeyrAppointment } from '@prisma/client';
+import {
+  mapGhlToLeyrPayload,
+  mapLeyrToGhlUpdatePayload,
+} from './appointment-mapper';
 
 function fakeGhlAppointment(
   overrides: Partial<GhlAppointment> = {},
@@ -58,5 +61,30 @@ describe('mapGhlToLeyrPayload', () => {
 
     expect(mapped.careUnitId).toBe('cu-stockholm-01');
     expect(mapped.payload.care_unit_id).toBeUndefined();
+  });
+});
+
+describe('mapLeyrToGhlUpdatePayload', () => {
+  it('includes locationId from ghlTarget for multi-location token selection', () => {
+    const leyrAppointment = {
+      startAt: new Date('2026-09-09T15:00:00.000Z'),
+      endAt: new Date('2026-09-09T15:45:00.000Z'),
+      description: 'Exam',
+      comment: null,
+      status: 'booked',
+    } as LeyrAppointment;
+
+    const payload = mapLeyrToGhlUpdatePayload({
+      leyrAppointment,
+      ghlTarget: {
+        calendarId: 'cal-1',
+        groupId: 'group-1',
+        locationId: 'loc-muntra',
+        assignedUserId: 'user-1',
+      },
+    });
+
+    expect(payload.locationId).toBe('loc-muntra');
+    expect(payload.calendarId).toBe('cal-1');
   });
 });

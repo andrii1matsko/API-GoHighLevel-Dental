@@ -466,9 +466,14 @@ export class CalendarSyncService {
     }
   }
 
-  private async deleteGhlBlockSlot(blockSlotId: string): Promise<void> {
+  private async deleteGhlBlockSlot(
+    blockSlotId: string,
+    locationId?: string | null,
+  ): Promise<void> {
     try {
-      await this.gohighlevelService.deleteEvent(blockSlotId, {});
+      await this.gohighlevelService.deleteEvent(blockSlotId, {
+        locationId: locationId || undefined,
+      });
       this.logger.log(`Deleted GHL block slot ${blockSlotId}`);
     } catch (err) {
       this.logger.warn(
@@ -824,30 +829,33 @@ export class CalendarSyncService {
       return false;
     }
 
-    // Use Leyr PATCH endpoint to update the existing appointment
+    // Leyr: when `status` is set, other fields are ignored; Opus/Muntra only
+    // support status=cancelled. Reschedule must omit status entirely.
     const leyrStatus = mapGhlStatusToLeyr(ghlAppointment.status);
     const isCancelled = leyrStatus === 'cancelled';
 
     await this.leyrService.updateAppointment(
       link.leyrAppointmentId,
-      leyrTarget.careUnitId,
-      {
-        status: leyrStatus,
-        start: isCancelled ? undefined : ghlAppointment.startAt.toISOString(),
-        end: isCancelled ? undefined : ghlAppointment.endAt.toISOString(),
-        healthcare_service_id: isCancelled
-          ? undefined
-          : leyrTarget.healthcareServiceId,
-        resource_id: isCancelled ? undefined : leyrTarget.resourceId,
-        comment: isCancelled ? undefined : ghlAppointment.title || undefined,
-      },
-      leyrTarget.emr,
+      link.leyrCareUnitId,
+      isCancelled
+        ? { status: 'cancelled' }
+        : {
+            start: ghlAppointment.startAt.toISOString(),
+            end: ghlAppointment.endAt.toISOString(),
+            healthcare_service_id: leyrTarget.healthcareServiceId,
+            resource_id: leyrTarget.resourceId || undefined,
+            comment: ghlAppointment.title || undefined,
+          },
+      link.leyrEmr,
     );
 
     // Update or recreate the GHL block slot
     let newBlockSlotId = link.ghlBlockSlotId;
     if (isCancelled && link.ghlBlockSlotId) {
-      await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
+      await this.deleteGhlBlockSlot(
+        link.ghlBlockSlotId,
+        ghlAppointment.locationId,
+      );
       newBlockSlotId = null;
     } else if (link.ghlBlockSlotId) {
       await this.updateGhlBlockSlot(link.ghlBlockSlotId, {
@@ -955,7 +963,10 @@ export class CalendarSyncService {
 
     // Delete the associated GHL block slot if one exists
     if (link.ghlBlockSlotId) {
-      await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
+      await this.deleteGhlBlockSlot(
+        link.ghlBlockSlotId,
+        ghlAppointment.locationId,
+      );
     }
 
     // Also update local DB status
@@ -1077,7 +1088,10 @@ export class CalendarSyncService {
     // Update or create the GHL block slot to match the new times
     let newBlockSlotId = link.ghlBlockSlotId;
     if (leyrAppointment.status === 'cancelled' && link.ghlBlockSlotId) {
-      await this.deleteGhlBlockSlot(link.ghlBlockSlotId);
+      await this.deleteGhlBlockSlot(
+        link.ghlBlockSlotId,
+        ghlTarget.locationId,
+      );
       newBlockSlotId = null;
     } else if (link.ghlBlockSlotId) {
       await this.updateGhlBlockSlot(link.ghlBlockSlotId, {
@@ -1087,10 +1101,10 @@ export class CalendarSyncService {
         startTime: leyrAppointment.startAt.toISOString(),
         endTime: leyrAppointment.endAt.toISOString(),
       });
-    } else {
+    } else if (ghlTarget.locationId) {
       newBlockSlotId = await this.createGhlBlockSlot({
         calendarId: ghlTarget.calendarId,
-        locationId: ghlTarget.locationId || '',
+        locationId: ghlTarget.locationId,
         assignedUserId: ghlTarget.assignedUserId,
         startTime: leyrAppointment.startAt.toISOString(),
         endTime: leyrAppointment.endAt.toISOString(),

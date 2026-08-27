@@ -14,24 +14,35 @@ function makePrismaStub() {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    appointmentLink: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
     leyrAppointment: {
       findUnique: jest.fn(),
     },
     ghlAppointment: {
       findUnique: jest.fn(),
     },
+    $transaction: jest.fn(async (ops: unknown) => ops),
   } as unknown as PrismaService;
 }
 
 function makeGhlStub() {
   return {
     createAppointment: jest.fn(),
+    updateAppointment: jest.fn(),
+    deleteEvent: jest.fn(),
+    createBlockSlot: jest.fn(),
+    updateBlockSlot: jest.fn(),
   } as unknown as GohighlevelService;
 }
 
 function makeLeyrStub() {
   return {
     createAppointment: jest.fn(),
+    updateAppointment: jest.fn(),
   } as unknown as LeyrService;
 }
 
@@ -66,14 +77,17 @@ function makeIdentityStub() {
 
 function makeServiceMappingStub() {
   return {
-    resolveForGhlToLeyr: jest.fn().mockResolvedValue({
+    resolveLeyrTarget: jest.fn().mockResolvedValue({
       careUnitId: 'cu-stockholm-01',
+      emr: 'opus',
       healthcareServiceId: 'hs-001',
       resourceId: 'res-001',
     }),
-    resolveForLeyrToGhl: jest.fn().mockResolvedValue({
+    resolveGhlTarget: jest.fn().mockResolvedValue({
       locationId: 'loc-001',
       calendarId: 'cal-001',
+      groupId: 'group-001',
+      assignedUserId: 'user-001',
     }),
   } as unknown as ServiceMappingResolverService;
 }
@@ -328,10 +342,15 @@ describe('CalendarSyncService', () => {
   });
 
   describe('GHL_TO_LEYR processing', () => {
-    it('marks AppointmentUpdate as failed (not implemented)', async () => {
-      const { service, prisma } = makeService();
+    it('reschedules via Leyr PATCH without status (only cancelled is supported)', async () => {
+      const { service, prisma, leyr } = makeService();
       const syncRow = fakeSyncRow('GHL_TO_LEYR', {
         sourceSystem: 'GHL:AppointmentUpdate',
+        ghlAppointment: fakeGhlAppointment({
+          status: 'confirmed',
+          startAt: new Date('2026-09-09T15:00:00.000Z'),
+          endAt: new Date('2026-09-09T15:45:00.000Z'),
+        }),
       });
 
       (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
@@ -341,25 +360,38 @@ describe('CalendarSyncService', () => {
         syncRow,
       );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue({
+        id: 'link-1',
+        ghlAppointmentId: 'ghl-ext-001',
+        leyrAppointmentId: 'leyr-ext-001',
+        leyrEmr: 'opus',
+        leyrCareUnitId: 'cu-stockholm-01',
+        ghlBlockSlotId: null,
+      });
+      (leyr.updateAppointment as jest.Mock).mockResolvedValue({});
 
       await service.syncAppointments('test');
 
-      expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
+      expect(leyr.updateAppointment).toHaveBeenCalledWith(
+        'leyr-ext-001',
+        'cu-stockholm-01',
         expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'failed',
-            errorMessage: expect.stringContaining(
-              'AppointmentUpdate not implemented',
-            ),
-          }),
+          start: '2026-09-09T15:00:00.000Z',
+          end: '2026-09-09T15:45:00.000Z',
+          healthcare_service_id: 'hs-001',
+          resource_id: 'res-001',
         }),
+        'opus',
       );
+      const patchBody = (leyr.updateAppointment as jest.Mock).mock.calls[0][2];
+      expect(patchBody).not.toHaveProperty('status');
     });
 
-    it('marks AppointmentDelete as failed (not implemented)', async () => {
-      const { service, prisma } = makeService();
+    it('cancels via Leyr PATCH with status=cancelled only', async () => {
+      const { service, prisma, leyr, ghl } = makeService();
       const syncRow = fakeSyncRow('GHL_TO_LEYR', {
         sourceSystem: 'GHL:AppointmentDelete',
+        ghlAppointment: fakeGhlAppointment({ locationId: 'loc-muntra' }),
       });
 
       (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
@@ -369,19 +401,29 @@ describe('CalendarSyncService', () => {
         syncRow,
       );
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue({
+        id: 'link-1',
+        ghlAppointmentId: 'ghl-ext-001',
+        leyrAppointmentId: 'leyr-ext-001',
+        leyrEmr: 'muntra',
+        leyrCareUnitId: 'L925_6509',
+        ghlBlockSlotId: 'block-1',
+      });
+      (leyr.updateAppointment as jest.Mock).mockResolvedValue({});
+      (ghl.deleteEvent as jest.Mock).mockResolvedValue({});
+      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue(null);
 
       await service.syncAppointments('test');
 
-      expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'failed',
-            errorMessage: expect.stringContaining(
-              'AppointmentDelete not implemented',
-            ),
-          }),
-        }),
+      expect(leyr.updateAppointment).toHaveBeenCalledWith(
+        'leyr-ext-001',
+        'L925_6509',
+        { status: 'cancelled' },
+        'muntra',
       );
+      expect(ghl.deleteEvent).toHaveBeenCalledWith('block-1', {
+        locationId: 'loc-muntra',
+      });
     });
 
     it('fails when default Leyr config values are missing', async () => {

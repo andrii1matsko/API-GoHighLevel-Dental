@@ -1477,15 +1477,17 @@ export class GohighlevelService {
       throw new HttpException('Missing eventId', 400);
     }
 
+    const locationId = this.resolveLocationId(payload.locationId);
     const requestPayload = {
       ...payload,
     };
     delete (requestPayload as { accessToken?: string }).accessToken;
+    delete (requestPayload as { locationId?: string }).locationId;
 
     try {
       const response = await this.runWithManagedLocationToken(
         payload.accessToken,
-        this.oauthLocationId || this.locationId,
+        locationId,
         async (token) =>
           firstValueFrom(
             this.httpService.put(
@@ -1519,15 +1521,17 @@ export class GohighlevelService {
     if (!eventId) {
       throw new HttpException('Missing eventId', 400);
     }
+    const locationId = this.resolveLocationId(payload.locationId);
     const requestPayload = {
       ...payload,
     };
     delete (requestPayload as { accessToken?: string }).accessToken;
+    delete (requestPayload as { locationId?: string }).locationId;
 
     try {
       const response = await this.runWithManagedLocationToken(
         payload.accessToken,
-        this.oauthLocationId || this.locationId,
+        locationId,
         async (token) =>
           firstValueFrom(
             this.httpService.delete(

@@ -265,7 +265,7 @@ describe('GohighlevelService', () => {
       ).rejects.toThrow(HttpException);
     });
 
-    it('updates appointment via PUT', async () => {
+    it('updates appointment via PUT using payload locationId for token', async () => {
       (httpService.put as jest.Mock).mockReturnValue(
         of(
           makeAxiosResponse({
@@ -274,12 +274,26 @@ describe('GohighlevelService', () => {
           }),
         ),
       );
+      (httpService.post as jest.Mock).mockReturnValue(
+        of(
+          makeAxiosResponse({
+            access_token: 'loc-token-secondary',
+            expires_in: 86400,
+            locationId: 'loc-secondary',
+          }),
+        ),
+      );
 
       const result = await service.updateAppointment('appt-001', {
         title: 'Updated Title',
+        locationId: 'loc-secondary',
       });
 
       expect(result).toHaveProperty('title', 'Updated Title');
+      expect(httpService.put).toHaveBeenCalled();
+      const putBody = (httpService.put as jest.Mock).mock.calls[0][1];
+      expect(putBody).not.toHaveProperty('locationId');
+      expect(putBody).not.toHaveProperty('accessToken');
     });
   });
 
@@ -288,14 +302,27 @@ describe('GohighlevelService', () => {
       await expect(service.deleteEvent('', {})).rejects.toThrow(HttpException);
     });
 
-    it('deletes event via DELETE', async () => {
+    it('deletes event via DELETE using payload locationId for token', async () => {
       (httpService.delete as jest.Mock).mockReturnValue(
         of(makeAxiosResponse({ succeeded: true })),
       );
+      (httpService.post as jest.Mock).mockReturnValue(
+        of(
+          makeAxiosResponse({
+            access_token: 'loc-token-secondary',
+            expires_in: 86400,
+            locationId: 'loc-secondary',
+          }),
+        ),
+      );
 
-      const result = await service.deleteEvent('event-001', {});
+      const result = await service.deleteEvent('event-001', {
+        locationId: 'loc-secondary',
+      });
 
       expect(result).toEqual({ succeeded: true });
+      const deleteConfig = (httpService.delete as jest.Mock).mock.calls[0][1];
+      expect(deleteConfig.data).not.toHaveProperty('locationId');
     });
   });
 

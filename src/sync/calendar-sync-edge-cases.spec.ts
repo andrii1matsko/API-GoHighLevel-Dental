@@ -14,8 +14,14 @@ function makePrismaStub() {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    appointmentLink: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
     leyrAppointment: { findUnique: jest.fn() },
     ghlAppointment: { findUnique: jest.fn() },
+    $transaction: jest.fn(async (ops: unknown) => ops),
   } as unknown as PrismaService;
 }
 
@@ -57,14 +63,17 @@ function makeIdentityStub() {
 
 function makeServiceMappingStub() {
   return {
-    resolveForGhlToLeyr: jest.fn().mockResolvedValue({
+    resolveLeyrTarget: jest.fn().mockResolvedValue({
       careUnitId: 'cu-stockholm-01',
+      emr: 'opus',
       healthcareServiceId: 'hs-001',
       resourceId: 'res-001',
     }),
-    resolveForLeyrToGhl: jest.fn().mockResolvedValue({
+    resolveGhlTarget: jest.fn().mockResolvedValue({
       locationId: 'loc-001',
       calendarId: 'cal-001',
+      groupId: 'group-001',
+      assignedUserId: 'user-001',
     }),
   } as unknown as ServiceMappingResolverService;
 }

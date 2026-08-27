@@ -152,6 +152,35 @@ export class IdentityResolverService {
   }
 
   /**
+   * Resolve GHL location from FacilityMapping for the Leyr care unit,
+   * falling back to SYNC_GHL_DEFAULT_LOCATION_ID when no mapping exists.
+   */
+  private async resolveGhlLocationForCareUnit(
+    leyrCareUnitId: string,
+    leyrEmr: string,
+  ): Promise<string> {
+    const facility = await this.prisma.facilityMapping.findUnique({
+      where: {
+        leyrCareUnitId_leyrEmr: { leyrCareUnitId, leyrEmr },
+      },
+      select: { ghlLocationId: true },
+    });
+
+    if (facility?.ghlLocationId) {
+      return facility.ghlLocationId;
+    }
+
+    if (this.defaultGhlLocationId) {
+      this.logger.warn(
+        `No FacilityMapping for Leyr care unit ${leyrCareUnitId} (emr=${leyrEmr}) — using SYNC_GHL_DEFAULT_LOCATION_ID`,
+      );
+      return this.defaultGhlLocationId;
+    }
+
+    return '';
+  }
+
+  /**
    * Some EMRs (e.g. Opus) do not implement GET /patients (search) — the
    * endpoint returns 501. For those we skip search and create directly.
    */
@@ -328,10 +357,13 @@ export class IdentityResolverService {
       );
     }
 
-    const locationId = this.defaultGhlLocationId;
+    const locationId = await this.resolveGhlLocationForCareUnit(
+      leyrCareUnitId,
+      leyrEmr,
+    );
     if (!locationId) {
       throw new Error(
-        'SYNC_GHL_DEFAULT_LOCATION_ID is not configured — cannot search/create GHL contacts',
+        `No FacilityMapping for Leyr care unit ${leyrCareUnitId} (emr=${leyrEmr}) and SYNC_GHL_DEFAULT_LOCATION_ID is not configured — cannot search/create GHL contacts`,
       );
     }
 

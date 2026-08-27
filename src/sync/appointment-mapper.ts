@@ -155,6 +155,7 @@ export function mapLeyrToGhlUpdatePayload(
     appointmentStatus: leyrStatusToGhl(leyrAppointment.status),
     assignedUserId: ghlTarget.assignedUserId,
     calendarId: ghlTarget.calendarId || undefined,
+    locationId: ghlTarget.locationId || undefined,
     toNotify: false,
   };
 }

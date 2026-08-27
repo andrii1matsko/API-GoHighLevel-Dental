@@ -434,6 +434,15 @@ export class UpdateAppointmentDto {
   @IsString()
   calendarId?: string;
 
+  @ApiPropertyOptional({
+    example: 'C2QujeCh8ZnC7al2InWR',
+    description:
+      'Location that owns the appointment. Required for multi-location; used to select the location access token.',
+  })
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
   @ApiPropertyOptional({ example: '2021-06-23T03:30:00+05:30' })
   @IsOptional()
   @IsString()
@@ -545,4 +554,13 @@ export class DeleteEventDto {
   @IsOptional()
   @IsString()
   accessToken?: string;
+
+  @ApiPropertyOptional({
+    example: 'C2QujeCh8ZnC7al2InWR',
+    description:
+      'Location that owns the event. Required for multi-location; used to select the location access token.',
+  })
+  @IsOptional()
+  @IsString()
+  locationId?: string;
 }
