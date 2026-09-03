@@ -10,6 +10,7 @@ export interface LeyrTarget {
 }
 
 export interface GhlTarget {
+  /** Empty when unmapped; never cross-facility env defaults once FacilityMapping is known. */
   calendarId: string;
   groupId: string;
   locationId: string;
@@ -142,6 +143,11 @@ export class ServiceMappingResolverService {
       return this.ghlFallback();
     }
 
+    const assignedUserId = await this.resolveAssignedUserId(
+      facilityMapping.id,
+      leyrResourceId,
+    );
+
     const calendarMapping = await this.prisma.calendarServiceMapping.findUnique(
       {
         where: {
@@ -153,45 +159,73 @@ export class ServiceMappingResolverService {
       },
     );
 
-    if (!calendarMapping) {
-      this.logger.warn(
-        `No CalendarServiceMapping for Leyr service ${leyrHealthcareServiceId} in facility ${facilityMapping.id} — using default calendar`,
-      );
+    if (calendarMapping) {
       return {
-        calendarId: this.defaultGhlCalendarId,
+        calendarId: calendarMapping.ghlCalendarId,
         groupId: facilityMapping.ghlGroupId,
         locationId: facilityMapping.ghlLocationId,
-        assignedUserId: undefined,
+        assignedUserId,
       };
     }
 
-    let assignedUserId: string | undefined;
+    // Missing service→calendar map: stay inside this facility only.
+    // Never use SYNC_GHL_DEFAULT_CALENDAR_ID here — that is often another clinic
+    // (e.g. Majorstua) and breaks Muntra→GHL with "Calendar not found".
+    const facilityCalendar = await this.prisma.calendarServiceMapping.findFirst(
+      {
+        where: { facilityMappingId: facilityMapping.id },
+        orderBy: { id: 'asc' },
+      },
+    );
 
-    if (leyrResourceId) {
-      const staffMapping = await this.prisma.staffResourceMapping.findUnique({
-        where: {
-          leyrResourceId_facilityMappingId: {
-            leyrResourceId,
-            facilityMappingId: facilityMapping.id,
-          },
-        },
-      });
-
-      if (staffMapping) {
-        assignedUserId = staffMapping.ghlUserId;
-      } else {
-        this.logger.warn(
-          `No StaffResourceMapping for Leyr resource ${leyrResourceId} in facility ${facilityMapping.id}`,
-        );
-      }
+    if (facilityCalendar) {
+      this.logger.warn(
+        `No CalendarServiceMapping for Leyr service ${leyrHealthcareServiceId} in facility ${facilityMapping.id} — using facility calendar ${facilityCalendar.ghlCalendarId} (not env default)`,
+      );
+      return {
+        calendarId: facilityCalendar.ghlCalendarId,
+        groupId: facilityMapping.ghlGroupId,
+        locationId: facilityMapping.ghlLocationId,
+        assignedUserId,
+      };
     }
 
+    this.logger.warn(
+      `No CalendarServiceMapping at all for facility ${facilityMapping.id} (service ${leyrHealthcareServiceId}) — returning location${assignedUserId ? ' + staff' : ''} without calendarId`,
+    );
     return {
-      calendarId: calendarMapping.ghlCalendarId,
+      calendarId: '',
       groupId: facilityMapping.ghlGroupId,
       locationId: facilityMapping.ghlLocationId,
       assignedUserId,
     };
+  }
+
+  private async resolveAssignedUserId(
+    facilityMappingId: string,
+    leyrResourceId?: string | null,
+  ): Promise<string | undefined> {
+    if (!leyrResourceId) {
+      return undefined;
+    }
+
+    const staffMapping = await this.prisma.staffResourceMapping.findUnique({
+      where: {
+        leyrResourceId_facilityMappingId: {
+          leyrResourceId,
+          facilityMappingId,
+        },
+      },
+    });
+
+    if (staffMapping) {
+      return staffMapping.ghlUserId;
+    }
+
+    this.logger.warn(
+      `No StaffResourceMapping for Leyr resource ${leyrResourceId} in facility ${facilityMappingId}`,
+    );
+    return undefined;
   }
 
   private async leyrFallback(

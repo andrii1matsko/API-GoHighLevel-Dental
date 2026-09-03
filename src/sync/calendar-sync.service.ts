@@ -659,16 +659,25 @@ export class CalendarSyncService {
   // ---------------------------------------------------------------------------
 
   private async createGhlBlockSlot(opts: {
-    calendarId: string;
+    calendarId?: string;
     locationId: string;
     assignedUserId?: string | null;
     startTime: string;
     endTime: string;
     title?: string;
   }): Promise<string | null> {
+    const calendarId = opts.calendarId?.trim() || undefined;
+    const assignedUserId = opts.assignedUserId || undefined;
+    if (!assignedUserId && !calendarId) {
+      this.logger.warn(
+        'Block slot skipped: need calendarId or assignedUserId for this facility',
+      );
+      return null;
+    }
+
     const payload: CreateBlockSlotDto = {
-      calendarId: opts.assignedUserId ? undefined : opts.calendarId,
-      assignedUserId: opts.assignedUserId || undefined,
+      calendarId: assignedUserId ? undefined : calendarId,
+      assignedUserId,
       locationId: opts.locationId,
       startTime: opts.startTime,
       endTime: opts.endTime,
@@ -989,7 +998,7 @@ export class CalendarSyncService {
     if (!ghlTarget.calendarId) {
       await this.markRowFailed(
         rowId,
-        'Service mapping resolved to empty calendarId — configure CalendarServiceMapping or set SYNC_GHL_DEFAULT_CALENDAR_ID',
+        'Service mapping resolved to empty calendarId — configure CalendarServiceMapping for this facility (env default calendar is not used across clinics)',
       );
       return false;
     }
@@ -1099,10 +1108,20 @@ export class CalendarSyncService {
       leyrAppointment.resourceId,
     );
 
-    if (!ghlTarget.calendarId || !ghlTarget.locationId) {
+    if (!ghlTarget.locationId) {
       await this.markRowFailed(
         rowId,
-        'Busy-slot mirror needs CalendarServiceMapping (calendarId + location) for this Leyr service',
+        'Busy-slot mirror needs FacilityMapping locationId for this Leyr care unit',
+      );
+      return false;
+    }
+
+    // Block by calendar and/or staff — both must belong to the same facility
+    // (resolver never injects another clinic's env default calendar).
+    if (!ghlTarget.calendarId && !ghlTarget.assignedUserId) {
+      await this.markRowFailed(
+        rowId,
+        'Busy-slot mirror needs a CalendarServiceMapping or StaffResourceMapping in this facility',
       );
       return false;
     }
