@@ -13,11 +13,13 @@ function makePrismaStub() {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     appointmentLink: {
       findFirst: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      create: jest.fn(),
     },
     leyrAppointment: { findUnique: jest.fn() },
     ghlAppointment: { findUnique: jest.fn() },
@@ -26,11 +28,21 @@ function makePrismaStub() {
 }
 
 function makeGhlStub() {
-  return { createAppointment: jest.fn() } as unknown as GohighlevelService;
+  return {
+    createAppointment: jest.fn(),
+    updateAppointment: jest.fn(),
+    deleteEvent: jest.fn(),
+    createBlockSlot: jest.fn(),
+    updateBlockSlot: jest.fn(),
+  } as unknown as GohighlevelService;
 }
 
 function makeLeyrStub() {
-  return { createAppointment: jest.fn() } as unknown as LeyrService;
+  return {
+    createAppointment: jest.fn(),
+    updateAppointment: jest.fn(),
+    getTimeslots: jest.fn().mockResolvedValue([]),
+  } as unknown as LeyrService;
 }
 
 function makeConfigStub(overrides: Record<string, string> = {}) {
@@ -42,22 +54,34 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
     SYNC_GHL_DEFAULT_CONTACT_ID: 'contact-001',
     SYNC_GHL_DEFAULT_LOCATION_ID: 'loc-001',
     SYNC_GHL_DEFAULT_CALENDAR_ID: 'cal-001',
+    SYNC_PRECHECK_TIMESLOTS: 'false',
+    SYNC_CANCEL_GHL_ON_LEYR_REJECT: 'false',
+    SYNC_LEYR_TO_GHL_BLOCK_SLOTS_ONLY: 'false',
     GHL_LOCATION_ID_OAUTH: '',
     GHL_LOCATION_ID: '',
     GHL_CALENDAR_ID: '',
     ...overrides,
   };
   return {
-    get: jest.fn(
-      (key: string, fallback?: string) => defaults[key] ?? fallback ?? '',
-    ),
+    get: jest.fn((key: string, fallback?: string | number) => {
+      if (key in defaults) return defaults[key];
+      if (key === 'SYNC_MAX_RETRIES') return 5;
+      if (key === 'SYNC_ECHO_GUARD_SECONDS') return 60;
+      return fallback ?? '';
+    }),
   } as unknown as ConfigService;
 }
 
 function makeIdentityStub() {
   return {
-    resolveLeyrPatient: jest.fn(),
-    resolveGhlContact: jest.fn(),
+    resolveLeyrPatient: jest.fn().mockResolvedValue({
+      leyrPatientId: 'pat-001',
+      created: false,
+    }),
+    resolveGhlContact: jest.fn().mockResolvedValue({
+      ghlContactId: 'contact-001',
+      created: false,
+    }),
   } as unknown as IdentityResolverService;
 }
 

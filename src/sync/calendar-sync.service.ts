@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { GhlAppointment, Prisma } from '@prisma/client';
+import { GhlAppointment, LeyrAppointment, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
 import { LeyrService } from '../integrations/leyr/leyr.service';
@@ -17,12 +17,46 @@ import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
 import { CreateBlockSlotDto } from '../integrations/gohighlevel/dto/calendars.dto';
 
 const MAX_RETRIES = 5;
+const TIMESLOT_MATCH_TOLERANCE_MS = 2 * 60 * 1000;
+/** Synthetic GHL appointment id for busy-slot-only Leyr→GHL links (no real GHL appt). */
+const BUSY_SLOT_GHL_ID_PREFIX = 'busy:';
+
+function isBusySlotOnlyLink(ghlAppointmentId: string): boolean {
+  return ghlAppointmentId.startsWith(BUSY_SLOT_GHL_ID_PREFIX);
+}
+
+function busySlotSyntheticGhlId(leyrAppointmentId: string): string {
+  return `${BUSY_SLOT_GHL_ID_PREFIX}${leyrAppointmentId}`;
+}
+
+/** Leyr/Muntra errors that will never succeed on retry — cancel phantom GHL booking. */
+const PERMANENT_LEYR_BOOKING_ERROR_PATTERNS = [
+  /tiden har redan bokats/i,
+  /already (been )?booked/i,
+  /slot (is )?taken/i,
+  /no[_ ]?timeslot/i,
+  /not available/i,
+  /personnummer/i,
+  /f[øo]dselsnummer/i,
+  /social_security_number/i,
+  /date of birth field is required/i,
+];
 
 @Injectable()
 export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
   private readonly maxRetries: number;
   private readonly echoGuardSeconds: number;
+  private readonly precheckTimeslots: boolean;
+  private readonly cancelGhlOnLeyrReject: boolean;
+  private readonly alertWebhookUrl: string | null;
+  /**
+   * When true (default), Leyr→GHL sync only creates GHL *block slots* to mark
+   * busy times — no patient contacts / appointments. Full reverse sync historically
+   * failed on duplicate contacts and Opus list API limits; block slots are enough
+   * for booking availability.
+   */
+  private readonly leyrToGhlBlockSlotsOnly: boolean;
 
   constructor(
     private readonly prismaService: PrismaService,
@@ -40,6 +74,21 @@ export class CalendarSyncService {
       'SYNC_ECHO_GUARD_SECONDS',
       60,
     );
+    this.precheckTimeslots =
+      this.configService.get<string>('SYNC_PRECHECK_TIMESLOTS', 'true') !==
+      'false';
+    this.cancelGhlOnLeyrReject =
+      this.configService.get<string>(
+        'SYNC_CANCEL_GHL_ON_LEYR_REJECT',
+        'true',
+      ) !== 'false';
+    const alertUrl = this.configService.get<string>('SYNC_ALERT_WEBHOOK_URL');
+    this.alertWebhookUrl = alertUrl?.trim() ? alertUrl.trim() : null;
+    this.leyrToGhlBlockSlotsOnly =
+      this.configService.get<string>(
+        'SYNC_LEYR_TO_GHL_BLOCK_SLOTS_ONLY',
+        'true',
+      ) !== 'false';
   }
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -367,17 +416,54 @@ export class CalendarSyncService {
     };
   }
 
-  private async markRowFailed(rowId: string, errorMessage: string) {
-    const row = await this.prismaService.appointmentSync.findUnique({
-      where: { id: rowId },
-      select: { retryCount: true },
-    });
+  private isPermanentLeyrBookingError(errorMessage: string): boolean {
+    return PERMANENT_LEYR_BOOKING_ERROR_PATTERNS.some((re) =>
+      re.test(errorMessage),
+    );
+  }
 
-    const newRetryCount = (row?.retryCount ?? 0) + 1;
-    const isDeadLetter = newRetryCount >= this.maxRetries;
+  private async markRowFailed(
+    rowId: string,
+    errorMessage: string,
+    options?: { permanent?: boolean },
+  ) {
+    let row: {
+      retryCount: number;
+      direction: string;
+      sourceSystem: string | null;
+      sourceExternalId: string | null;
+      ghlAppointment: GhlAppointment | null;
+    } | null = null;
+
+    try {
+      row = await this.prismaService.appointmentSync.findUnique({
+        where: { id: rowId },
+        select: {
+          retryCount: true,
+          direction: true,
+          sourceSystem: true,
+          sourceExternalId: true,
+          ghlAppointment: true,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `markRowFailed could not load row ${rowId}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+
+    const permanent =
+      options?.permanent === true ||
+      this.isPermanentLeyrBookingError(errorMessage);
+    const newRetryCount = permanent
+      ? this.maxRetries
+      : (row?.retryCount ?? 0) + 1;
+    const isDeadLetter = permanent || newRetryCount >= this.maxRetries;
 
     const backoffMs = Math.min(
-      1000 * Math.pow(2, newRetryCount),
+      1000 * Math.pow(2, Math.max(newRetryCount, 1)),
       30 * 60 * 1000,
     );
 
@@ -397,6 +483,174 @@ export class CalendarSyncService {
       this.logger.error(
         `Sync row ${rowId} moved to dead_letter after ${newRetryCount} retries: ${errorMessage}`,
       );
+
+      const failedRow = row;
+      if (
+        failedRow !== null &&
+        failedRow.direction === 'GHL_TO_LEYR' &&
+        (failedRow.sourceSystem === 'GHL:AppointmentCreate' ||
+          failedRow.sourceSystem?.endsWith(':AppointmentCreate') ||
+          failedRow.sourceSystem === 'GHL:manual-retry')
+      ) {
+        if (failedRow.ghlAppointment) {
+          await this.handleRejectedGhlBooking(
+            failedRow.ghlAppointment,
+            errorMessage,
+          );
+        } else if (failedRow.sourceExternalId) {
+          await this.notifySyncFailure({
+            ghlAppointmentId: failedRow.sourceExternalId,
+            locationId: null,
+            contactId: null,
+            startAt: null,
+            errorMessage,
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Cancel phantom GHL booking + optional Slack/Teams webhook when Leyr reject
+   * is permanent (slot taken, missing personnummer, etc.).
+   */
+  private async handleRejectedGhlBooking(
+    ghlAppointment: GhlAppointment,
+    errorMessage: string,
+  ): Promise<void> {
+    if (this.cancelGhlOnLeyrReject) {
+      await this.cancelPhantomGhlAppointment(ghlAppointment, errorMessage);
+    }
+    await this.notifySyncFailure({
+      ghlAppointmentId: ghlAppointment.ghlAppointmentId,
+      locationId: ghlAppointment.locationId,
+      contactId: ghlAppointment.contactId,
+      startAt: ghlAppointment.startAt,
+      errorMessage,
+    });
+  }
+
+  private async cancelPhantomGhlAppointment(
+    ghlAppointment: GhlAppointment,
+    errorMessage: string,
+  ): Promise<void> {
+    const shortReason = errorMessage.slice(0, 400);
+    try {
+      await this.gohighlevelService.updateAppointment(
+        ghlAppointment.ghlAppointmentId,
+        {
+          locationId: ghlAppointment.locationId,
+          appointmentStatus: 'cancelled',
+          toNotify: true,
+          description: `[Sync rejected] ${shortReason}`,
+        },
+      );
+      this.logger.warn(
+        `Cancelled phantom GHL appointment ${ghlAppointment.ghlAppointmentId} after Leyr reject`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to cancel phantom GHL appointment ${ghlAppointment.ghlAppointmentId}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
+
+  private async notifySyncFailure(payload: {
+    ghlAppointmentId: string;
+    locationId: string | null;
+    contactId: string | null;
+    startAt: Date | null;
+    errorMessage: string;
+  }): Promise<void> {
+    const text =
+      `🚨 GHL→Leyr booking rejected\n` +
+      `GHL appointment: ${payload.ghlAppointmentId}\n` +
+      `Location: ${payload.locationId ?? 'n/a'}\n` +
+      `Contact: ${payload.contactId ?? 'n/a'}\n` +
+      `Start: ${payload.startAt?.toISOString() ?? 'n/a'}\n` +
+      `Error: ${payload.errorMessage.slice(0, 500)}`;
+
+    this.logger.error(text);
+
+    if (!this.alertWebhookUrl) {
+      return;
+    }
+
+    try {
+      await fetch(this.alertWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          // Slack-compatible; ignored by generic webhooks
+          blocks: [
+            {
+              type: 'section',
+              text: { type: 'mrkdwn', text: `\`\`\`${text}\`\`\`` },
+            },
+          ],
+        }),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `SYNC_ALERT_WEBHOOK_URL notify failed: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Returns true if Leyr still offers this start time (within tolerance).
+   * On timeslot API failure → null (caller should fail-open and try create).
+   */
+  private async isLeyrSlotAvailable(opts: {
+    careUnitId: string;
+    emr: string;
+    healthcareServiceId: string;
+    resourceId?: string | null;
+    startAt: Date;
+    endAt: Date;
+  }): Promise<boolean | null> {
+    const dayStart = new Date(opts.startAt);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(opts.startAt);
+    dayEnd.setUTCHours(23, 59, 59, 999);
+    // Widen window ±1 day for timezone edge cases
+    const rangeStart = new Date(dayStart.getTime() - 24 * 60 * 60 * 1000);
+    const rangeEnd = new Date(dayEnd.getTime() + 24 * 60 * 60 * 1000);
+
+    try {
+      const raw = await this.leyrService.getTimeslots(
+        opts.careUnitId,
+        opts.resourceId || undefined,
+        opts.healthcareServiceId,
+        rangeStart.toISOString(),
+        rangeEnd.toISOString(),
+        opts.emr,
+      );
+
+      const slots = Array.isArray(raw)
+        ? (raw as Array<Record<string, unknown>>)
+        : [];
+
+      const target = opts.startAt.getTime();
+      return slots.some((slot) => {
+        if (!slot?.start) return false;
+        if (slot.available === false) return false;
+        const slotStart = new Date(String(slot.start)).getTime();
+        if (Number.isNaN(slotStart)) return false;
+        return Math.abs(slotStart - target) <= TIMESLOT_MATCH_TOLERANCE_MS;
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Timeslot pre-check failed (fail-open): ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+      return null;
     }
   }
 
@@ -558,6 +812,30 @@ export class CalendarSyncService {
       leyrTarget,
     });
 
+    // 3b. Pre-check Leyr/Muntra free slots so we don't create phantom GHL bookings
+    if (this.precheckTimeslots && row.ghlAppointment.startAt) {
+      const available = await this.isLeyrSlotAvailable({
+        careUnitId: mapped.careUnitId,
+        emr: mapped.emr,
+        healthcareServiceId: mapped.payload.healthcare_service_id,
+        resourceId: mapped.payload.resource_id,
+        startAt: row.ghlAppointment.startAt,
+        endAt: row.ghlAppointment.endAt,
+      });
+
+      if (available === false) {
+        const msg =
+          `NO_TIMESLOT: requested start ${row.ghlAppointment.startAt.toISOString()} ` +
+          `is not available in Leyr (${mapped.emr}) for service ` +
+          `${mapped.payload.healthcare_service_id}` +
+          (mapped.payload.resource_id
+            ? ` / resource ${mapped.payload.resource_id}`
+            : '');
+        await this.markRowFailed(rowId, msg, { permanent: true });
+        return false;
+      }
+    }
+
     // 4. Create appointment in Leyr
     const response = (await this.leyrService.createAppointment(
       mapped.careUnitId,
@@ -661,12 +939,19 @@ export class CalendarSyncService {
         where: { id: rowId },
         data: {
           status: 'success',
-          targetExternalId: existingLink.ghlAppointmentId,
+          targetExternalId:
+            existingLink.ghlBlockSlotId ?? existingLink.ghlAppointmentId,
           syncedAt: new Date(),
           errorMessage: null,
         },
       });
       return true;
+    }
+
+    // Default: only mirror busy times as GHL block slots (safe for Muntra/Opus).
+    // Set SYNC_LEYR_TO_GHL_BLOCK_SLOTS_ONLY=false for full appointment+contact sync.
+    if (this.leyrToGhlBlockSlotsOnly) {
+      return this.processLeyrToGhlBusySlot(rowId, row.leyrAppointment);
     }
 
     // 1. Resolve identity: Leyr patient → GHL contact.
@@ -778,6 +1063,106 @@ export class CalendarSyncService {
     return true;
   }
 
+
+  /**
+   * Leyr/Muntra → GHL availability only: create a block slot so free-slots /
+   * SMS booking see the time as busy — without creating a patient contact.
+   */
+  private async processLeyrToGhlBusySlot(
+    rowId: string,
+    leyrAppointment: LeyrAppointment,
+  ): Promise<boolean> {
+    if (leyrAppointment.status === 'cancelled') {
+      await this.prismaService.appointmentSync.update({
+        where: { id: rowId },
+        data: {
+          status: 'success',
+          syncedAt: new Date(),
+          errorMessage: null,
+        },
+      });
+      return true;
+    }
+
+    if (!leyrAppointment.startAt || !leyrAppointment.endAt) {
+      await this.markRowFailed(
+        rowId,
+        'Leyr appointment missing start/end for busy-slot mirror',
+      );
+      return false;
+    }
+
+    const ghlTarget = await this.serviceMappingResolver.resolveGhlTarget(
+      leyrAppointment.careUnitId,
+      leyrAppointment.emr,
+      leyrAppointment.healthcareServiceId,
+      leyrAppointment.resourceId,
+    );
+
+    if (!ghlTarget.calendarId || !ghlTarget.locationId) {
+      await this.markRowFailed(
+        rowId,
+        'Busy-slot mirror needs CalendarServiceMapping (calendarId + location) for this Leyr service',
+      );
+      return false;
+    }
+
+    const title =
+      leyrAppointment.description?.trim() ||
+      `Busy (${leyrAppointment.emr}) — synced from EHR`;
+
+    const blockSlotId = await this.createGhlBlockSlot({
+      calendarId: ghlTarget.calendarId,
+      locationId: ghlTarget.locationId,
+      assignedUserId: ghlTarget.assignedUserId,
+      startTime: leyrAppointment.startAt.toISOString(),
+      endTime: leyrAppointment.endAt.toISOString(),
+      title,
+    });
+
+    if (!blockSlotId) {
+      await this.markRowFailed(
+        rowId,
+        'Failed to create GHL block slot for Leyr busy time',
+      );
+      return false;
+    }
+
+    const syntheticGhlId = busySlotSyntheticGhlId(
+      leyrAppointment.leyrAppointmentId,
+    );
+    const echoGuardUntil = new Date(Date.now() + this.echoGuardSeconds * 1000);
+
+    await this.prismaService.$transaction([
+      this.prismaService.appointmentLink.create({
+        data: {
+          ghlAppointmentId: syntheticGhlId,
+          leyrAppointmentId: leyrAppointment.leyrAppointmentId,
+          leyrEmr: leyrAppointment.emr,
+          leyrCareUnitId: leyrAppointment.careUnitId,
+          ghlBlockSlotId: blockSlotId,
+          lastSyncDirection: 'LEYR_TO_GHL',
+          lastSyncedAt: new Date(),
+          echoGuardUntil,
+        },
+      }),
+      this.prismaService.appointmentSync.update({
+        where: { id: rowId },
+        data: {
+          status: 'success',
+          targetExternalId: blockSlotId,
+          syncedAt: new Date(),
+          errorMessage: null,
+        },
+      }),
+    ]);
+
+    this.logger.log(
+      `Mirrored Leyr ${leyrAppointment.leyrAppointmentId} → GHL block slot ${blockSlotId} (${leyrAppointment.emr})`,
+    );
+    return true;
+  }
+
   // ---------------------------------------------------------------------------
   // GHL → Leyr UPDATE (cancel + recreate, since Leyr has no PATCH endpoint)
   // ---------------------------------------------------------------------------
@@ -796,6 +1181,23 @@ export class CalendarSyncService {
     });
 
     if (!link) {
+      const leyrStatus = mapGhlStatusToLeyr(ghlAppointment.status);
+      if (leyrStatus === 'cancelled') {
+        // Phantom cancel (e.g. we cancelled after Leyr reject) — nothing to sync
+        await this.prismaService.appointmentSync.update({
+          where: { id: rowId },
+          data: {
+            status: 'success',
+            syncedAt: new Date(),
+            errorMessage: null,
+          },
+        });
+        this.logger.log(
+          `GHL cancel for ${ghlAppointment.ghlAppointmentId} has no AppointmentLink — marked success (no Leyr action)`,
+        );
+        return true;
+      }
+
       this.logger.warn(
         `GHL update for ${ghlAppointment.ghlAppointmentId} has no AppointmentLink — treating as new create`,
       );
@@ -1026,11 +1428,16 @@ export class CalendarSyncService {
           : 'AppointmentUpdate';
 
       if (mutationType === 'AppointmentCancel') {
-        await this.markRowFailed(
-          rowId,
-          'No AppointmentLink for Leyr cancel — nothing to delete in GHL',
-        );
-        return false;
+        // Nothing mirrored yet — cancel is a no-op success for availability
+        await this.prismaService.appointmentSync.update({
+          where: { id: rowId },
+          data: {
+            status: 'success',
+            syncedAt: new Date(),
+            errorMessage: null,
+          },
+        });
+        return true;
       }
 
       this.logger.warn(
@@ -1070,20 +1477,24 @@ export class CalendarSyncService {
       leyrAppointment.resourceId,
     );
 
-    const updatePayload = mapLeyrToGhlUpdatePayload({
-      leyrAppointment,
-      ghlTarget,
-    });
+    const busyOnly = isBusySlotOnlyLink(link.ghlAppointmentId);
 
-    // If the Leyr status is cancelled, propagate as cancellation
-    if (leyrAppointment.status === 'cancelled') {
-      updatePayload.appointmentStatus = 'cancelled';
+    // Full links: update the real GHL appointment. Busy-only: block slot only.
+    if (!busyOnly) {
+      const updatePayload = mapLeyrToGhlUpdatePayload({
+        leyrAppointment,
+        ghlTarget,
+      });
+
+      if (leyrAppointment.status === 'cancelled') {
+        updatePayload.appointmentStatus = 'cancelled';
+      }
+
+      await this.gohighlevelService.updateAppointment(
+        link.ghlAppointmentId,
+        updatePayload,
+      );
     }
-
-    await this.gohighlevelService.updateAppointment(
-      link.ghlAppointmentId,
-      updatePayload,
-    );
 
     // Update or create the GHL block slot to match the new times
     let newBlockSlotId = link.ghlBlockSlotId;
@@ -1101,7 +1512,7 @@ export class CalendarSyncService {
         startTime: leyrAppointment.startAt.toISOString(),
         endTime: leyrAppointment.endAt.toISOString(),
       });
-    } else if (ghlTarget.locationId) {
+    } else if (ghlTarget.locationId && ghlTarget.calendarId) {
       newBlockSlotId = await this.createGhlBlockSlot({
         calendarId: ghlTarget.calendarId,
         locationId: ghlTarget.locationId,
@@ -1113,6 +1524,25 @@ export class CalendarSyncService {
     }
 
     const echoGuardUntil = new Date(Date.now() + this.echoGuardSeconds * 1000);
+
+    if (busyOnly && leyrAppointment.status === 'cancelled') {
+      await this.prismaService.$transaction([
+        this.prismaService.appointmentLink.delete({ where: { id: link.id } }),
+        this.prismaService.appointmentSync.update({
+          where: { id: rowId },
+          data: {
+            status: 'success',
+            targetExternalId: link.ghlBlockSlotId,
+            syncedAt: new Date(),
+            errorMessage: null,
+          },
+        }),
+      ]);
+      this.logger.log(
+        `Removed busy-slot mirror for Leyr ${leyrAppointmentId} (cancelled)`,
+      );
+      return true;
+    }
 
     await this.prismaService.$transaction([
       this.prismaService.appointmentLink.update({
@@ -1128,7 +1558,9 @@ export class CalendarSyncService {
         where: { id: rowId },
         data: {
           status: 'success',
-          targetExternalId: link.ghlAppointmentId,
+          targetExternalId: busyOnly
+            ? (newBlockSlotId ?? link.ghlBlockSlotId)
+            : link.ghlAppointmentId,
           syncedAt: new Date(),
           errorMessage: null,
         },
@@ -1136,7 +1568,9 @@ export class CalendarSyncService {
     ]);
 
     this.logger.log(
-      `Updated Leyr ${leyrAppointmentId} → GHL ${link.ghlAppointmentId}`,
+      busyOnly
+        ? `Updated busy-slot mirror Leyr ${leyrAppointmentId} → block ${newBlockSlotId ?? link.ghlBlockSlotId}`
+        : `Updated Leyr ${leyrAppointmentId} → GHL ${link.ghlAppointmentId}`,
     );
     return true;
   }

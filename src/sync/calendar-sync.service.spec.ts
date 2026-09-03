@@ -13,11 +13,13 @@ function makePrismaStub() {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     appointmentLink: {
       findFirst: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      create: jest.fn(),
     },
     leyrAppointment: {
       findUnique: jest.fn(),
@@ -43,6 +45,7 @@ function makeLeyrStub() {
   return {
     createAppointment: jest.fn(),
     updateAppointment: jest.fn(),
+    getTimeslots: jest.fn().mockResolvedValue([]),
   } as unknown as LeyrService;
 }
 
@@ -55,6 +58,9 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
     SYNC_GHL_DEFAULT_CONTACT_ID: 'contact-001',
     SYNC_GHL_DEFAULT_LOCATION_ID: 'loc-001',
     SYNC_GHL_DEFAULT_CALENDAR_ID: 'cal-001',
+    SYNC_PRECHECK_TIMESLOTS: 'false',
+    SYNC_CANCEL_GHL_ON_LEYR_REJECT: 'false',
+    SYNC_LEYR_TO_GHL_BLOCK_SLOTS_ONLY: 'false',
     GHL_LOCATION_ID_OAUTH: '',
     GHL_LOCATION_ID: '',
     GHL_CALENDAR_ID: '',
@@ -62,16 +68,25 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
   };
 
   return {
-    get: jest.fn(
-      (key: string, fallback?: string) => defaults[key] ?? fallback ?? '',
-    ),
+    get: jest.fn((key: string, fallback?: string | number) => {
+      if (key in defaults) return defaults[key];
+      if (key === 'SYNC_MAX_RETRIES') return 5;
+      if (key === 'SYNC_ECHO_GUARD_SECONDS') return 60;
+      return fallback ?? '';
+    }),
   } as unknown as ConfigService;
 }
 
 function makeIdentityStub() {
   return {
-    resolveLeyrPatient: jest.fn(),
-    resolveGhlContact: jest.fn(),
+    resolveLeyrPatient: jest.fn().mockResolvedValue({
+      leyrPatientId: 'pat-001',
+      created: false,
+    }),
+    resolveGhlContact: jest.fn().mockResolvedValue({
+      ghlContactId: 'contact-001',
+      created: false,
+    }),
   } as unknown as IdentityResolverService;
 }
 
@@ -426,17 +441,21 @@ describe('CalendarSyncService', () => {
       });
     });
 
-    it('fails when default Leyr config values are missing', async () => {
-      const config = makeConfigStub({
-        SYNC_LEYR_DEFAULT_CARE_UNIT_ID: '',
-        SYNC_LEYR_DEFAULT_HEALTHCARE_SERVICE_ID: '',
-        SYNC_LEYR_DEFAULT_RESOURCE_ID: '',
+    it('fails when service mapping resolves empty Leyr targets', async () => {
+      const serviceMapping = makeServiceMappingStub();
+      (serviceMapping.resolveLeyrTarget as jest.Mock).mockResolvedValue({
+        careUnitId: '',
+        emr: 'opus',
+        healthcareServiceId: '',
+        resourceId: '',
       });
       const { service, prisma } = makeService(
         undefined,
         undefined,
         undefined,
-        config,
+        undefined,
+        undefined,
+        serviceMapping,
       );
       const syncRow = fakeSyncRow('GHL_TO_LEYR');
 
@@ -454,7 +473,7 @@ describe('CalendarSyncService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             status: 'failed',
-            errorMessage: expect.stringContaining('SYNC_LEYR_DEFAULT'),
+            errorMessage: expect.stringContaining('careUnitId'),
           }),
         }),
       );
@@ -539,7 +558,7 @@ describe('CalendarSyncService', () => {
           end: ghlAppt.endAt.toISOString(),
           healthcare_service_id: 'hs-001',
           resource_id: 'res-001',
-          patient_id: 'contact-001',
+          patient_id: 'pat-001',
         }),
         'opus',
         { enqueueSync: false },
@@ -579,17 +598,21 @@ describe('CalendarSyncService', () => {
   });
 
   describe('LEYR_TO_GHL processing', () => {
-    it('fails when default GHL config values are missing', async () => {
-      const config = makeConfigStub({
-        SYNC_GHL_DEFAULT_CONTACT_ID: '',
-        SYNC_GHL_DEFAULT_LOCATION_ID: '',
-        SYNC_GHL_DEFAULT_CALENDAR_ID: '',
+    it('fails when service mapping resolves empty GHL calendar', async () => {
+      const serviceMapping = makeServiceMappingStub();
+      (serviceMapping.resolveGhlTarget as jest.Mock).mockResolvedValue({
+        locationId: 'loc-001',
+        calendarId: '',
+        groupId: null,
+        assignedUserId: null,
       });
       const { service, prisma } = makeService(
         undefined,
         undefined,
         undefined,
-        config,
+        undefined,
+        undefined,
+        serviceMapping,
       );
       const syncRow = fakeSyncRow('LEYR_TO_GHL');
 
@@ -607,7 +630,7 @@ describe('CalendarSyncService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             status: 'failed',
-            errorMessage: expect.stringContaining('SYNC_GHL_DEFAULT'),
+            errorMessage: expect.stringContaining('calendarId'),
           }),
         }),
       );
@@ -725,7 +748,7 @@ describe('CalendarSyncService', () => {
 
       expect(ghl.createAppointment).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: expect.stringContaining('Synced from Leyr'),
+          title: expect.stringContaining('Synced from EHR'),
         }),
         expect.anything(),
       );
@@ -795,6 +818,7 @@ describe('CalendarSyncService', () => {
       (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue({
         ...syncRow,
         ghlAppointment: null,
+        retryCount: 0,
       });
       (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
 
@@ -803,7 +827,200 @@ describe('CalendarSyncService', () => {
       expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            retryCount: { increment: 1 },
+            retryCount: 1,
+            status: 'failed',
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('timeslot pre-check and loud fail', () => {
+    it('rejects GHL create when Leyr timeslot is unavailable and cancels GHL appt', async () => {
+      const { service, prisma, leyr, ghl } = makeService(
+        makePrismaStub(),
+        makeGhlStub(),
+        makeLeyrStub(),
+        makeConfigStub({
+          SYNC_PRECHECK_TIMESLOTS: 'true',
+          SYNC_CANCEL_GHL_ON_LEYR_REJECT: 'true',
+        }),
+      );
+      const syncRow = fakeSyncRow('GHL_TO_LEYR');
+
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue(null);
+      (leyr.getTimeslots as jest.Mock).mockResolvedValue([
+        {
+          start: '2026-06-15T12:00:00.000Z',
+          end: '2026-06-15T12:30:00.000Z',
+          available: true,
+        },
+      ]);
+      (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+      (ghl.updateAppointment as jest.Mock).mockResolvedValue({});
+
+      const result = await service.syncAppointments('test');
+
+      expect(result.failedCount).toBe(1);
+      expect(leyr.createAppointment).not.toHaveBeenCalled();
+      expect(ghl.updateAppointment).toHaveBeenCalledWith(
+        'ghl-ext-001',
+        expect.objectContaining({
+          appointmentStatus: 'cancelled',
+          locationId: 'loc-001',
+        }),
+      );
+      expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'dead_letter',
+            errorMessage: expect.stringContaining('NO_TIMESLOT'),
+          }),
+        }),
+      );
+    });
+
+    it('allows create when Leyr timeslot matches requested start', async () => {
+      const { service, prisma, leyr } = makeService(
+        makePrismaStub(),
+        makeGhlStub(),
+        makeLeyrStub(),
+        makeConfigStub({ SYNC_PRECHECK_TIMESLOTS: 'true' }),
+      );
+      const syncRow = fakeSyncRow('GHL_TO_LEYR');
+      const startIso = syncRow.ghlAppointment.startAt.toISOString();
+
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue(null);
+      (leyr.getTimeslots as jest.Mock).mockResolvedValue([
+        {
+          start: startIso,
+          end: syncRow.ghlAppointment.endAt.toISOString(),
+          available: true,
+        },
+      ]);
+      (leyr.createAppointment as jest.Mock).mockResolvedValue([
+        { id: 'leyr-ok' },
+      ]);
+      (prisma.leyrAppointment.findUnique as jest.Mock).mockResolvedValue({
+        id: 'db',
+      });
+      (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+
+      const result = await service.syncAppointments('test');
+
+      expect(result.syncedCount).toBe(1);
+      expect(leyr.createAppointment).toHaveBeenCalled();
+    });
+
+    it('dead-letters immediately on Tiden har redan bokats and cancels GHL', async () => {
+      const { service, prisma, leyr, ghl } = makeService(
+        makePrismaStub(),
+        makeGhlStub(),
+        makeLeyrStub(),
+        makeConfigStub({
+          SYNC_PRECHECK_TIMESLOTS: 'false',
+          SYNC_CANCEL_GHL_ON_LEYR_REJECT: 'true',
+        }),
+      );
+      const syncRow = fakeSyncRow('GHL_TO_LEYR');
+
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue(null);
+      (leyr.createAppointment as jest.Mock).mockRejectedValue(
+        new Error(
+          'Unprocessable Entity | Details: {"errors":[{"detail":"Tiden har redan bokats"}]}',
+        ),
+      );
+      (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+      (ghl.updateAppointment as jest.Mock).mockResolvedValue({});
+
+      const result = await service.syncAppointments('test');
+
+      expect(result.failedCount).toBe(1);
+      expect(ghl.updateAppointment).toHaveBeenCalledWith(
+        'ghl-ext-001',
+        expect.objectContaining({ appointmentStatus: 'cancelled' }),
+      );
+      expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'dead_letter',
+          }),
+        }),
+      );
+    });
+
+    it('marks cancelled GHL update without link as success (no re-create)', async () => {
+      const { service, prisma, leyr } = makeService();
+      const syncRow = fakeSyncRow('GHL_TO_LEYR', {
+        sourceSystem: 'GHL:AppointmentUpdate',
+        ghlAppointment: fakeGhlAppointment({ status: 'cancelled' }),
+      });
+
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue(null);
+      (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+
+      const result = await service.syncAppointments('test');
+
+      expect(result.syncedCount).toBe(1);
+      expect(leyr.createAppointment).not.toHaveBeenCalled();
+    });
+
+    it('mirrors Leyr→GHL as block slot only (no GHL patient appointment)', async () => {
+      const { service, prisma, ghl, leyr, identity } = makeService(
+        makePrismaStub(),
+        makeGhlStub(),
+        makeLeyrStub(),
+        makeConfigStub({ SYNC_LEYR_TO_GHL_BLOCK_SLOTS_ONLY: 'true' }),
+      );
+      const syncRow = fakeSyncRow('LEYR_TO_GHL');
+
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue(null);
+      (ghl.createBlockSlot as jest.Mock).mockResolvedValue({ id: 'block-99' });
+      (prisma.appointmentLink.create as jest.Mock).mockResolvedValue({});
+      (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+
+      const result = await service.syncAppointments('test');
+
+      expect(result.syncedCount).toBe(1);
+      expect(ghl.createAppointment).not.toHaveBeenCalled();
+      expect(identity.resolveGhlContact).not.toHaveBeenCalled();
+      expect(leyr.createAppointment).not.toHaveBeenCalled();
+      expect(ghl.createBlockSlot).toHaveBeenCalled();
+      expect(prisma.appointmentLink.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ghlAppointmentId: 'busy:leyr-ext-001',
+            ghlBlockSlotId: 'block-99',
           }),
         }),
       );
@@ -820,7 +1037,6 @@ describe('CalendarSyncService', () => {
 
       expect(prisma.appointmentSync.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { status: 'pending' },
           orderBy: { createdAt: 'asc' },
           take: 30,
         }),
