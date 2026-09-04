@@ -130,4 +130,27 @@ describe('ServiceMappingResolverService.resolveGhlTarget', () => {
     });
     expect(target.calendarId).not.toBe(majorstuaDefaultCalendar);
   });
+
+  it('lists all facility calendar ids for busy mirroring', async () => {
+    const prisma = {
+      facilityMapping: {
+        findUnique: jest.fn().mockResolvedValue({
+          ...muntraFacility,
+          calendarMappings: [
+            { ghlCalendarId: 'M4fGB5ZSScHmQCMg7y1T' },
+            { ghlCalendarId: 'XWSktFqDO0gHlecPBvuW' },
+            { ghlCalendarId: 'M4fGB5ZSScHmQCMg7y1T' },
+          ],
+        }),
+      },
+    };
+
+    const svc = build(prisma);
+    await expect(
+      svc.listFacilityCalendarIds('L925_6509', 'muntra'),
+    ).resolves.toEqual([
+      'M4fGB5ZSScHmQCMg7y1T',
+      'XWSktFqDO0gHlecPBvuW',
+    ]);
+  });
 });

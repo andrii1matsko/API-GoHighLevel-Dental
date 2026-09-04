@@ -308,6 +308,13 @@ export class CalendarSyncService {
   }
 
   async syncAppointments(trigger: string) {
+    if (
+      trigger === 'repair-busy-blocks' ||
+      trigger.includes('repair-busy-blocks')
+    ) {
+      return this.repairBusySlotCalendarBlocks(trigger);
+    }
+
     const now = new Date();
     const staleProcessingBefore = new Date(now.getTime() - 5 * 60 * 1000);
     const pendingRows = await this.prismaService.appointmentSync.findMany({
@@ -675,9 +682,11 @@ export class CalendarSyncService {
       return null;
     }
 
+    // Prefer calendarId when both are known. Booking widgets call
+    // /calendars/{id}/free-slots without userId — user-only blocks stay invisible.
     const payload: CreateBlockSlotDto = {
-      calendarId: assignedUserId ? undefined : calendarId,
-      assignedUserId,
+      calendarId: calendarId ?? undefined,
+      assignedUserId: calendarId ? undefined : assignedUserId,
       locationId: opts.locationId,
       startTime: opts.startTime,
       endTime: opts.endTime,
@@ -713,9 +722,11 @@ export class CalendarSyncService {
     },
   ): Promise<void> {
     try {
+      const calendarId = opts.calendarId?.trim() || undefined;
+      const assignedUserId = opts.assignedUserId || undefined;
       await this.gohighlevelService.updateBlockSlot(blockSlotId, {
-        calendarId: opts.assignedUserId ? undefined : opts.calendarId,
-        assignedUserId: opts.assignedUserId || undefined,
+        calendarId: calendarId ?? undefined,
+        assignedUserId: calendarId ? undefined : assignedUserId,
         locationId: opts.locationId,
         startTime: opts.startTime,
         endTime: opts.endTime,
@@ -733,16 +744,70 @@ export class CalendarSyncService {
     blockSlotId: string,
     locationId?: string | null,
   ): Promise<void> {
-    try {
-      await this.gohighlevelService.deleteEvent(blockSlotId, {
-        locationId: locationId || undefined,
-      });
-      this.logger.log(`Deleted GHL block slot ${blockSlotId}`);
-    } catch (err) {
-      this.logger.warn(
-        `Block slot deletion failed (non-fatal): ${err instanceof Error ? err.message : err}`,
-      );
+    const ids = blockSlotId
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    for (const id of ids) {
+      try {
+        await this.gohighlevelService.deleteEvent(id, {
+          locationId: locationId || undefined,
+        });
+        this.logger.log(`Deleted GHL block slot ${id}`);
+      } catch (err) {
+        this.logger.warn(
+          `Block slot deletion failed (non-fatal): ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
+  }
+
+  /**
+   * Mirror one busy window onto every GHL calendar for the facility so
+   * booking widgets (free-slots by calendarId) cannot offer taken times.
+   */
+  private async createFacilityBusyBlockSlots(opts: {
+    careUnitId: string;
+    emr: string;
+    locationId: string;
+    preferredCalendarId?: string;
+    startTime: string;
+    endTime: string;
+    title: string;
+  }): Promise<string | null> {
+    const facilityCalendarIds =
+      await this.serviceMappingResolver.listFacilityCalendarIds(
+        opts.careUnitId,
+        opts.emr,
+      );
+    const calendarIds = [
+      ...new Set(
+        [opts.preferredCalendarId, ...facilityCalendarIds].filter(
+          (id): id is string => Boolean(id?.trim()),
+        ),
+      ),
+    ];
+
+    if (calendarIds.length === 0) {
+      return null;
+    }
+
+    const created: string[] = [];
+    for (const calendarId of calendarIds) {
+      const slotId = await this.createGhlBlockSlot({
+        calendarId,
+        locationId: opts.locationId,
+        assignedUserId: undefined,
+        startTime: opts.startTime,
+        endTime: opts.endTime,
+        title: opts.title,
+      });
+      if (slotId) {
+        created.push(slotId);
+      }
+    }
+
+    return created.length > 0 ? created.join(',') : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -1116,9 +1181,17 @@ export class CalendarSyncService {
       return false;
     }
 
-    // Block by calendar and/or staff — both must belong to the same facility
-    // (resolver never injects another clinic's env default calendar).
-    if (!ghlTarget.calendarId && !ghlTarget.assignedUserId) {
+    // Need at least facility calendars or staff; resolver stays facility-scoped.
+    const facilityCalendarIds =
+      await this.serviceMappingResolver.listFacilityCalendarIds(
+        leyrAppointment.careUnitId,
+        leyrAppointment.emr,
+      );
+    if (
+      !ghlTarget.calendarId &&
+      !ghlTarget.assignedUserId &&
+      facilityCalendarIds.length === 0
+    ) {
       await this.markRowFailed(
         rowId,
         'Busy-slot mirror needs a CalendarServiceMapping or StaffResourceMapping in this facility',
@@ -1130,14 +1203,28 @@ export class CalendarSyncService {
       leyrAppointment.description?.trim() ||
       `Busy (${leyrAppointment.emr}) — synced from EHR`;
 
-    const blockSlotId = await this.createGhlBlockSlot({
-      calendarId: ghlTarget.calendarId,
+    // Prefer calendar-level blocks on *all* facility calendars so the booking
+    // widget free-slots API sees Muntra busy times (user-only blocks do not).
+    let blockSlotId = await this.createFacilityBusyBlockSlots({
+      careUnitId: leyrAppointment.careUnitId,
+      emr: leyrAppointment.emr,
       locationId: ghlTarget.locationId,
-      assignedUserId: ghlTarget.assignedUserId,
+      preferredCalendarId: ghlTarget.calendarId || undefined,
       startTime: leyrAppointment.startAt.toISOString(),
       endTime: leyrAppointment.endAt.toISOString(),
       title,
     });
+
+    if (!blockSlotId && ghlTarget.assignedUserId) {
+      blockSlotId = await this.createGhlBlockSlot({
+        calendarId: undefined,
+        locationId: ghlTarget.locationId,
+        assignedUserId: ghlTarget.assignedUserId,
+        startTime: leyrAppointment.startAt.toISOString(),
+        endTime: leyrAppointment.endAt.toISOString(),
+        title,
+      });
+    }
 
     if (!blockSlotId) {
       await this.markRowFailed(
@@ -1523,6 +1610,26 @@ export class CalendarSyncService {
         ghlTarget.locationId,
       );
       newBlockSlotId = null;
+    } else if (busyOnly && ghlTarget.locationId) {
+      // Recreate calendar-level blocks (updates can't retarget user→calendar).
+      if (link.ghlBlockSlotId) {
+        await this.deleteGhlBlockSlot(
+          link.ghlBlockSlotId,
+          ghlTarget.locationId,
+        );
+      }
+      const title =
+        leyrAppointment.description?.trim() ||
+        `Busy (${leyrAppointment.emr}) — synced from EHR`;
+      newBlockSlotId = await this.createFacilityBusyBlockSlots({
+        careUnitId: leyrAppointment.careUnitId,
+        emr: leyrAppointment.emr,
+        locationId: ghlTarget.locationId,
+        preferredCalendarId: ghlTarget.calendarId || undefined,
+        startTime: leyrAppointment.startAt.toISOString(),
+        endTime: leyrAppointment.endAt.toISOString(),
+        title,
+      });
     } else if (link.ghlBlockSlotId) {
       await this.updateGhlBlockSlot(link.ghlBlockSlotId, {
         calendarId: ghlTarget.calendarId || undefined,
@@ -1592,6 +1699,108 @@ export class CalendarSyncService {
         : `Updated Leyr ${leyrAppointmentId} → GHL ${link.ghlAppointmentId}`,
     );
     return true;
+  }
+
+  /**
+   * Re-create existing busy-slot mirrors as calendar-level blocks on every
+   * facility calendar (fixes widgets that ignore user-only blocks).
+   */
+  async repairBusySlotCalendarBlocks(trigger = 'repair-busy-blocks') {
+    const links = await this.prismaService.appointmentLink.findMany({
+      where: { ghlAppointmentId: { startsWith: BUSY_SLOT_GHL_ID_PREFIX } },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+    });
+
+    let repaired = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    for (const link of links) {
+      const leyrAppointment =
+        await this.prismaService.leyrAppointment.findUnique({
+          where: { leyrAppointmentId: link.leyrAppointmentId },
+        });
+
+      if (!leyrAppointment?.startAt || !leyrAppointment?.endAt) {
+        skipped += 1;
+        continue;
+      }
+      if (leyrAppointment.status === 'cancelled') {
+        if (link.ghlBlockSlotId) {
+          await this.deleteGhlBlockSlot(
+            link.ghlBlockSlotId,
+            undefined,
+          );
+        }
+        await this.prismaService.appointmentLink.delete({
+          where: { id: link.id },
+        });
+        skipped += 1;
+        continue;
+      }
+
+      const ghlTarget = await this.serviceMappingResolver.resolveGhlTarget(
+        leyrAppointment.careUnitId,
+        leyrAppointment.emr,
+        leyrAppointment.healthcareServiceId,
+        leyrAppointment.resourceId,
+      );
+
+      if (!ghlTarget.locationId) {
+        failed += 1;
+        continue;
+      }
+
+      if (link.ghlBlockSlotId) {
+        await this.deleteGhlBlockSlot(
+          link.ghlBlockSlotId,
+          ghlTarget.locationId,
+        );
+      }
+
+      const title =
+        leyrAppointment.description?.trim() ||
+        `Busy (${leyrAppointment.emr}) — synced from EHR`;
+
+      const blockSlotId = await this.createFacilityBusyBlockSlots({
+        careUnitId: leyrAppointment.careUnitId,
+        emr: leyrAppointment.emr,
+        locationId: ghlTarget.locationId,
+        preferredCalendarId: ghlTarget.calendarId || undefined,
+        startTime: leyrAppointment.startAt.toISOString(),
+        endTime: leyrAppointment.endAt.toISOString(),
+        title,
+      });
+
+      if (!blockSlotId) {
+        failed += 1;
+        continue;
+      }
+
+      await this.prismaService.appointmentLink.update({
+        where: { id: link.id },
+        data: {
+          ghlBlockSlotId: blockSlotId,
+          lastSyncDirection: 'LEYR_TO_GHL',
+          lastSyncedAt: new Date(),
+        },
+      });
+      repaired += 1;
+    }
+
+    this.logger.log(
+      `Busy-slot repair (${trigger}): repaired=${repaired} failed=${failed} skipped=${skipped} found=${links.length}`,
+    );
+
+    return {
+      trigger,
+      found: links.length,
+      repaired,
+      failed,
+      skipped,
+      completedAt: new Date().toISOString(),
+    };
   }
 }
 

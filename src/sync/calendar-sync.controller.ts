@@ -15,7 +15,11 @@ export class CalendarSyncController {
   ) {}
 
   @Post('calendar')
-  @ApiOperation({ summary: 'Manually trigger appointment sync' })
+  @ApiOperation({
+    summary: 'Manually trigger appointment sync',
+    description:
+      'Use reason "repair-busy-blocks" to recreate Leyr→GHL busy mirrors as calendar-level blocks on every facility calendar (fixes booking widgets that ignore user-only blocks).',
+  })
   triggerSync(@Body() body: TriggerSyncDto) {
     return this.calendarSyncService.syncAppointments(
       body.reason ?? 'manual-api',

@@ -201,6 +201,34 @@ export class ServiceMappingResolverService {
     };
   }
 
+  /**
+   * All GHL calendar IDs mapped for a Leyr care unit (deduped).
+   * Used so busy mirrors block every booking calendar at the clinic, not only one.
+   */
+  async listFacilityCalendarIds(
+    leyrCareUnitId: string,
+    leyrEmr: string,
+  ): Promise<string[]> {
+    const facilityMapping = await this.prisma.facilityMapping.findUnique({
+      where: {
+        leyrCareUnitId_leyrEmr: { leyrCareUnitId, leyrEmr },
+      },
+      include: {
+        calendarMappings: { select: { ghlCalendarId: true } },
+      },
+    });
+    if (!facilityMapping) {
+      return [];
+    }
+    return [
+      ...new Set(
+        facilityMapping.calendarMappings
+          .map((c) => c.ghlCalendarId)
+          .filter(Boolean),
+      ),
+    ];
+  }
+
   private async resolveAssignedUserId(
     facilityMappingId: string,
     leyrResourceId?: string | null,
