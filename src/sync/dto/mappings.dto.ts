@@ -67,6 +67,26 @@ export class CreateCalendarServiceMappingDto {
   leyrServiceName?: string;
 }
 
+export class UpdateCalendarServiceMappingDto {
+  @ApiPropertyOptional({ example: 'General Consultation' })
+  @IsOptional()
+  @IsString()
+  ghlCalendarName?: string;
+
+  @ApiPropertyOptional({
+    example: '359',
+    description: 'Leyr healthcare service ID',
+  })
+  @IsOptional()
+  @IsString()
+  leyrHealthcareServiceId?: string;
+
+  @ApiPropertyOptional({ example: 'Erbjudande undersökning 490kr' })
+  @IsOptional()
+  @IsString()
+  leyrServiceName?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Staff ↔ Resource
 // ---------------------------------------------------------------------------

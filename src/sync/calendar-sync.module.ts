@@ -7,6 +7,7 @@ import { LeyrPollingService } from './leyr-polling.service';
 import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 import { MappingsController } from './mappings.controller';
+import { AvailabilityService } from './availability.service';
 
 @Module({
   imports: [forwardRef(() => GohighlevelModule), LeyrModule],
@@ -16,11 +17,13 @@ import { MappingsController } from './mappings.controller';
     LeyrPollingService,
     IdentityResolverService,
     ServiceMappingResolverService,
+    AvailabilityService,
   ],
   exports: [
     CalendarSyncService,
     IdentityResolverService,
     ServiceMappingResolverService,
+    AvailabilityService,
   ],
 })
 export class CalendarSyncModule {}

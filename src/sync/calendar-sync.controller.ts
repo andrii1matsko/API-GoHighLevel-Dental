@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { CalendarSyncService } from './calendar-sync.service';
 import { LeyrPollingService } from './leyr-polling.service';
+import { AvailabilityService } from './availability.service';
 import { TriggerSyncDto } from './dto/trigger-sync.dto';
 import { PollLeyrDto } from './dto/poll-leyr.dto';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
+import { LeyrBackedFreeSlotsQueryDto } from './dto/leyr-backed-free-slots-query.dto';
 
 @ApiTags('Sync')
 @Controller('sync')
@@ -12,7 +14,38 @@ export class CalendarSyncController {
   constructor(
     private readonly calendarSyncService: CalendarSyncService,
     private readonly leyrPollingService: LeyrPollingService,
+    private readonly availabilityService: AvailabilityService,
   ) {}
+
+  @Get('calendars/:calendarId/free-slots')
+  @ApiOperation({
+    summary: 'Free slots from Leyr/Muntra/Opus for a mapped GHL calendar',
+    description:
+      'Returns the same shape as GHL free-slots, but sourced from Leyr timeslots. ' +
+      'Use this for booking UIs: GHL service_booking free-slots ignore staff busy blocks from Muntra.',
+  })
+  @ApiParam({ name: 'calendarId', description: 'GHL calendar ID' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        '2026-09-11': {
+          slots: ['2026-09-11T09:40:00+02:00'],
+        },
+      },
+    },
+  })
+  getLeyrBackedFreeSlots(
+    @Param('calendarId') calendarId: string,
+    @Query() query: LeyrBackedFreeSlotsQueryDto,
+  ) {
+    return this.availabilityService.getLeyrBackedFreeSlots({
+      ghlCalendarId: calendarId,
+      startDateMs: query.startDate,
+      endDateMs: query.endDate,
+      timezone: query.timezone,
+      ghlUserId: query.userId,
+    });
+  }
 
   @Post('calendar')
   @ApiOperation({

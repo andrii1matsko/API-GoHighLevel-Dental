@@ -5,6 +5,7 @@ import {
   Get,
   HttpException,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import {
   CreateCalendarServiceMappingDto,
   CreateStaffResourceMappingDto,
   DiscoverMappingsQueryDto,
+  UpdateCalendarServiceMappingDto,
 } from './dto/mappings.dto';
 
 interface GhlGroup {
@@ -148,6 +150,25 @@ export class MappingsController {
   async deleteCalendarService(@Param('id') id: string) {
     await this.prisma.calendarServiceMapping.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  @Patch('calendars/:id')
+  @ApiOperation({
+    summary: 'Update a calendar-service mapping (e.g. Leyr service id)',
+  })
+  @ApiParam({ name: 'id', description: 'CalendarServiceMapping ID' })
+  async updateCalendarService(
+    @Param('id') id: string,
+    @Body() dto: UpdateCalendarServiceMappingDto,
+  ) {
+    try {
+      return await this.prisma.calendarServiceMapping.update({
+        where: { id },
+        data: dto,
+      });
+    } catch {
+      throw new HttpException(`CalendarServiceMapping ${id} not found`, 404);
+    }
   }
 
   // -------------------------------------------------------------------------
