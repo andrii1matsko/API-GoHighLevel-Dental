@@ -72,7 +72,7 @@ export class GohighlevelLocationScopedQueryDto extends GohighlevelAccessTokenQue
   locationId?: string;
 }
 
-export class GetCalendarFreeSlotsQueryDto extends GohighlevelAccessTokenQueryDto {
+export class GetCalendarFreeSlotsQueryDto extends GohighlevelLocationScopedQueryDto {
   @ApiProperty({
     example: 1548898600000,
     description:

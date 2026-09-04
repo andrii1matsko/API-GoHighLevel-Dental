@@ -1749,7 +1749,7 @@ export class GohighlevelService {
     try {
       const response = await this.runWithManagedLocationToken(
         query.accessToken,
-        this.oauthLocationId || this.locationId,
+        query.locationId || this.oauthLocationId || this.locationId,
         async (token) =>
           firstValueFrom(
             this.httpService.get(
