@@ -72,5 +72,6 @@ jobs:
             cd "${{ secrets.EC2_APP_PATH }}"
             git fetch origin main
             git checkout main
-            git pull --ff-only origin main
+            # Keep EC2 in sync after force-with-lease / rewritten history on main
+            git reset --hard origin/main
             bash scripts/deploy-prod.sh

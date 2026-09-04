@@ -14,7 +14,11 @@ echo "==> Branch before: $(git rev-parse --abbrev-ref HEAD) @ $(git rev-parse --
 
 git fetch origin main
 git checkout main
-git pull --ff-only origin main
+# Force-with-lease rewrites on origin leave EC2 unable to ff-only; hard reset is intentional for this deploy path.
+if ! git pull --ff-only origin main; then
+  echo "==> ff-only failed (diverged history) — resetting to origin/main"
+  git reset --hard origin/main
+fi
 
 if command -v pnpm >/dev/null 2>&1; then
   PKG=pnpm
