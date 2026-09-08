@@ -244,15 +244,15 @@ export class GhlAvailabilitySyncService {
 
     for (const member of opts.staff) {
       try {
-        const raw = await this.leyrService.getTimeslots(
-          opts.careUnitId,
-          member.leyrResourceId,
-          opts.leyrHealthcareServiceId,
-          new Date(now).toISOString(),
-          new Date(endMs).toISOString(),
-          opts.emr,
-        );
-        const slots = this.toFreeWindows(raw);
+        // Chunk Leyr queries — a single 31-day timeslots call often 504s.
+        const slots = await this.fetchFreeWindowsChunked({
+          careUnitId: opts.careUnitId,
+          resourceId: member.leyrResourceId,
+          healthcareServiceId: opts.leyrHealthcareServiceId,
+          startMs: now,
+          endMs,
+          emr: opts.emr,
+        });
         const { rules: dateRules, coveredSlotCount } = buildDateSpecificRules({
           slots,
           horizonDates,
@@ -273,7 +273,7 @@ export class GhlAvailabilitySyncService {
         // Brief pause — GHL schedule API is slow / rate-sensitive.
         await new Promise((r) => setTimeout(r, 400));
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = this.errorMessage(err);
         errors.push(`${member.ghlUserId}: ${message}`);
         this.logger.error(
           `Availability sync failed calendar=${opts.ghlCalendarId} user=${member.ghlUserId}: ${message}`,
@@ -288,6 +288,100 @@ export class GhlAvailabilitySyncService {
       slotsCovered,
       errors,
     };
+  }
+
+  private errorMessage(err: unknown): string {
+    if (!err || typeof err !== 'object') return String(err);
+    const anyErr = err as { message?: unknown; response?: { message?: unknown } };
+    const raw = anyErr.message ?? anyErr.response?.message;
+    if (typeof raw === 'string') return raw;
+    if (raw && typeof raw === 'object' && 'message' in raw) {
+      const nested = (raw as { message?: unknown }).message;
+      if (typeof nested === 'string') return nested;
+    }
+    try {
+      return JSON.stringify(raw ?? err);
+    } catch {
+      return String(err);
+    }
+  }
+
+  private isTransientTimeout(err: unknown): boolean {
+    return /timed?\s*out|timeout|GATEWAY_TIMEOUT|504/i.test(
+      this.errorMessage(err),
+    );
+  }
+
+  /**
+   * Leyr often times out on a full 31-day timeslots query. Fetch in ~7-day
+   * chunks with retries so one slow window cannot blank a whole staff day.
+   */
+  private async fetchFreeWindowsChunked(opts: {
+    careUnitId: string;
+    resourceId: string;
+    healthcareServiceId: string;
+    startMs: number;
+    endMs: number;
+    emr: string;
+  }): Promise<FreeSlotWindow[]> {
+    const chunkMs = 7 * 24 * 60 * 60 * 1000;
+    const merged: FreeSlotWindow[] = [];
+    const seen = new Set<string>();
+
+    for (let cursor = opts.startMs; cursor < opts.endMs; cursor += chunkMs) {
+      const chunkEnd = Math.min(cursor + chunkMs, opts.endMs);
+      const raw = await this.getTimeslotsWithRetry(
+        opts.careUnitId,
+        opts.resourceId,
+        opts.healthcareServiceId,
+        new Date(cursor).toISOString(),
+        new Date(chunkEnd).toISOString(),
+        opts.emr,
+      );
+      for (const slot of this.toFreeWindows(raw)) {
+        const key = `${slot.start}|${slot.end ?? ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(slot);
+      }
+    }
+    return merged;
+  }
+
+  private async getTimeslotsWithRetry(
+    careUnitId: string,
+    resourceId: string,
+    healthcareServiceId: string,
+    start: string,
+    end: string,
+    emr: string,
+  ): Promise<unknown> {
+    const attempts = 3;
+    let lastError: unknown;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        return await this.leyrService.getTimeslots(
+          careUnitId,
+          resourceId,
+          healthcareServiceId,
+          start,
+          end,
+          emr,
+        );
+      } catch (err) {
+        lastError = err;
+        if (i < attempts && this.isTransientTimeout(err)) {
+          const waitMs = 1000 * i;
+          this.logger.warn(
+            `Leyr timeslots timed out ${start}→${end} (attempt ${i}/${attempts}), retry in ${waitMs}ms`,
+          );
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw lastError;
   }
 
   private toFreeWindows(raw: unknown): FreeSlotWindow[] {
