@@ -138,7 +138,7 @@ describe('ServiceMappingResolverService.resolveGhlTarget', () => {
           ...muntraFacility,
           calendarMappings: [
             { ghlCalendarId: 'M4fGB5ZSScHmQCMg7y1T' },
-            { ghlCalendarId: 'XWSktFqDO0gHlecPBvuW' },
+            { ghlCalendarId: 'XWSktFqDODgHIecPBvuW' },
             { ghlCalendarId: 'M4fGB5ZSScHmQCMg7y1T' },
           ],
         }),
@@ -150,7 +150,7 @@ describe('ServiceMappingResolverService.resolveGhlTarget', () => {
       svc.listFacilityCalendarIds('L925_6509', 'muntra'),
     ).resolves.toEqual([
       'M4fGB5ZSScHmQCMg7y1T',
-      'XWSktFqDO0gHlecPBvuW',
+      'XWSktFqDODgHIecPBvuW',
     ]);
   });
 });

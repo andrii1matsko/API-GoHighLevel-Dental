@@ -192,6 +192,64 @@ export function listHorizonDates(
   return [...new Set(days)];
 }
 
+/** Next calendar day YYYY-MM-DD (UTC date arithmetic on the civil day key). */
+export function nextDayKey(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d + 1));
+  return utc.toISOString().slice(0, 10);
+}
+
+/**
+ * Convert a clinic-local civil date+time to UTC epoch ms (handles DST).
+ * Iteratively corrects the UTC guess using Intl formatting in `timezone`.
+ */
+export function zonedLocalTimeToUtcMs(
+  day: string,
+  hour: number,
+  minute: number,
+  timezone: string,
+): number {
+  const [y, mo, d] = day.split('-').map(Number);
+  let utcMs = Date.UTC(y, mo - 1, d, hour, minute, 0);
+  for (let i = 0; i < 4; i++) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(utcMs));
+    const get = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value ?? '0');
+    const asLocal = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      get('hour'),
+      get('minute'),
+      get('second'),
+    );
+    const desired = Date.UTC(y, mo - 1, d, hour, minute, 0);
+    const delta = desired - asLocal;
+    if (delta === 0) break;
+    utcMs += delta;
+  }
+  return utcMs;
+}
+
+/** [start, end) UTC bounds for a clinic-local calendar day (DST-safe). */
+export function clinicDayBoundsUtcMs(
+  day: string,
+  timezone: string,
+): { startMs: number; endMs: number } {
+  const startMs = zonedLocalTimeToUtcMs(day, 0, 0, timezone);
+  const endMs = zonedLocalTimeToUtcMs(nextDayKey(day), 0, 0, timezone);
+  return { startMs, endMs };
+}
+
 /**
  * Build date-specific rules for the full horizon.
  * - Every Leyr free slot becomes an open interval (merged per day).
@@ -276,5 +334,27 @@ export function defaultWeekdayRules(
     type: 'wday',
     day,
     intervals: [{ from, to }],
+  }));
+}
+
+/**
+ * Closed weekly base for dedicated Muntra schedules: only date-specific rules
+ * may open bookable time. Prevents wday 08–17 from reopening days outside the
+ * synced horizon (or after horizon ends mid-day).
+ */
+export function closedWeekdayRules(): WdayScheduleRule[] {
+  const days: WdayScheduleRule['day'][] = [
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+    'sunday',
+  ];
+  return days.map((day) => ({
+    type: 'wday',
+    day,
+    intervals: [],
   }));
 }

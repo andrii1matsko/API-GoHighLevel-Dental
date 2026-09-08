@@ -6,7 +6,8 @@ import { LeyrService } from '../integrations/leyr/leyr.service';
 import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
 import {
   buildDateSpecificRules,
-  defaultWeekdayRules,
+  closedWeekdayRules,
+  clinicDayBoundsUtcMs,
   listHorizonDates,
   mergeScheduleRules,
   ScheduleRule,
@@ -146,6 +147,8 @@ export class GhlAvailabilitySyncService {
     this.running = true;
     const started = Date.now();
     try {
+      await this.repairStaleBasCalendarMapping();
+
       const mappings = await this.prisma.calendarServiceMapping.findMany({
         include: {
           facility: { include: { staffMappings: true } },
@@ -215,6 +218,42 @@ export class GhlAvailabilitySyncService {
     }
   }
 
+  /**
+   * Prod DB still had dead Bas calendar id DO0g… while GHL live id is DODg….
+   * Repair once per sync so busy-mirrors / polling hit the real calendar.
+   */
+  private async repairStaleBasCalendarMapping(): Promise<void> {
+    const stale = 'XWSktFqDO0gHlecPBvuW';
+    const live = 'XWSktFqDODgHIecPBvuW';
+    const existingLive = await this.prisma.calendarServiceMapping.findUnique({
+      where: { ghlCalendarId: live },
+    });
+    if (existingLive) {
+      // Live already mapped — drop stale row if present.
+      const deleted = await this.prisma.calendarServiceMapping.deleteMany({
+        where: { ghlCalendarId: stale },
+      });
+      if (deleted.count > 0) {
+        this.logger.warn(
+          `Removed stale Bas calendar mapping ${stale} (live ${live} already mapped)`,
+        );
+      }
+      return;
+    }
+    const updated = await this.prisma.calendarServiceMapping.updateMany({
+      where: { ghlCalendarId: stale },
+      data: {
+        ghlCalendarId: live,
+        ghlCalendarName: 'Basundersökning av tandhygienist',
+      },
+    });
+    if (updated.count > 0) {
+      this.logger.warn(
+        `Repaired Bas calendar mapping ${stale} → ${live} (${updated.count} row)`,
+      );
+    }
+  }
+
   async syncCalendar(opts: {
     ghlCalendarId: string;
     leyrHealthcareServiceId: string;
@@ -243,20 +282,24 @@ export class GhlAvailabilitySyncService {
     }
 
     const now = Date.now();
-    const endMs = now + this.horizonDays * 24 * 60 * 60 * 1000;
+    // Horizon is calendar days in clinic TZ — fetch exactly those days (no UTC tail).
     const horizonDates = listHorizonDates(now, this.horizonDays, this.timezone);
 
     for (const member of opts.staff) {
       try {
-        // Chunk Leyr queries — a single 31-day timeslots call often 504s.
-        const slots = await this.fetchFreeWindowsChunked({
-          careUnitId: opts.careUnitId,
-          resourceId: member.leyrResourceId,
-          healthcareServiceId: opts.leyrHealthcareServiceId,
-          startMs: now,
-          endMs,
-          emr: opts.emr,
-        });
+        const { slots, closedDaysDueToError } =
+          await this.fetchFreeWindowsForHorizonDays({
+            careUnitId: opts.careUnitId,
+            resourceId: member.leyrResourceId,
+            healthcareServiceId: opts.leyrHealthcareServiceId,
+            horizonDates,
+            emr: opts.emr,
+          });
+        if (closedDaysDueToError.length > 0) {
+          this.logger.warn(
+            `Leyr day fetch failed for user=${member.ghlUserId} days=${closedDaysDueToError.join(',')}; those days closed (fail-closed)`,
+          );
+        }
         const { rules: dateRules, coveredSlotCount } = buildDateSpecificRules({
           slots,
           horizonDates,
@@ -296,8 +339,26 @@ export class GhlAvailabilitySyncService {
 
   private errorMessage(err: unknown): string {
     if (!err || typeof err !== 'object') return String(err);
-    const anyErr = err as { message?: unknown; response?: { message?: unknown } };
-    const raw = anyErr.message ?? anyErr.response?.message;
+    const withNest = err as {
+      getResponse?: () => unknown;
+      getStatus?: () => number;
+      message?: unknown;
+      response?: { message?: unknown; statusCode?: number };
+    };
+    if (typeof withNest.getResponse === 'function') {
+      const resp = withNest.getResponse();
+      if (typeof resp === 'string') return resp;
+      if (resp && typeof resp === 'object') {
+        const obj = resp as { message?: unknown };
+        if (typeof obj.message === 'string') return obj.message;
+        try {
+          return JSON.stringify(resp);
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+    const raw = withNest.message ?? withNest.response?.message;
     if (typeof raw === 'string') return raw;
     if (raw && typeof raw === 'object' && 'message' in raw) {
       const nested = (raw as { message?: unknown }).message;
@@ -310,83 +371,63 @@ export class GhlAvailabilitySyncService {
     }
   }
 
-  private isTransientTimeout(err: unknown): boolean {
-    return /timed?\s*out|timeout|GATEWAY_TIMEOUT|504/i.test(
+  private isTransientLeyrError(err: unknown): boolean {
+    const status =
+      err && typeof err === 'object' && 'getStatus' in err
+        ? (err as { getStatus: () => number }).getStatus()
+        : (err as { status?: number; response?: { statusCode?: number } })
+            ?.response?.statusCode ??
+          (err as { status?: number })?.status;
+    if (status === 429 || status === 504 || status === 502 || status === 503) {
+      return true;
+    }
+    return /timed?\s*out|timeout|GATEWAY_TIMEOUT|504|429|Too Many Requests|rate.?limit|ECONNRESET|ETIMEDOUT/i.test(
       this.errorMessage(err),
     );
   }
 
   /**
-   * Leyr often 504s or silently returns an incomplete timeslot list on wide
-   * ranges (e.g. drops 13:50 while keeping 13:00 on the same day). Fetch one
-   * clinic-local day at a time with retries.
+   * Fetch Leyr timeslots for each clinic-local horizon day.
+   * On persistent failure for a day: leave that day with no free slots
+   * (fail-closed) so we do not keep advertising stale opens.
    */
-  private async fetchFreeWindowsChunked(opts: {
+  private async fetchFreeWindowsForHorizonDays(opts: {
     careUnitId: string;
     resourceId: string;
     healthcareServiceId: string;
-    startMs: number;
-    endMs: number;
+    horizonDates: string[];
     emr: string;
-  }): Promise<FreeSlotWindow[]> {
+  }): Promise<{ slots: FreeSlotWindow[]; closedDaysDueToError: string[] }> {
     const merged: FreeSlotWindow[] = [];
     const seen = new Set<string>();
-    // Day keys in clinic TZ covering [startMs, endMs).
-    const dayKeys = listHorizonDates(
-      opts.startMs,
-      Math.max(
-        1,
-        Math.ceil((opts.endMs - opts.startMs) / (24 * 60 * 60 * 1000)) + 1,
-      ),
-      this.timezone,
-    );
+    const closedDaysDueToError: string[] = [];
 
-    for (const day of dayKeys) {
-      const dayStart = this.clinicDayStartUtcMs(day);
-      if (dayStart >= opts.endMs) continue;
-      if (dayStart + 24 * 60 * 60 * 1000 <= opts.startMs) continue;
-
-      const rangeStart = Math.max(opts.startMs, dayStart);
-      const rangeEnd = Math.min(opts.endMs, dayStart + 24 * 60 * 60 * 1000);
-      if (rangeEnd <= rangeStart) continue;
-
-      const raw = await this.getTimeslotsWithRetry(
-        opts.careUnitId,
-        opts.resourceId,
-        opts.healthcareServiceId,
-        new Date(rangeStart).toISOString(),
-        new Date(rangeEnd).toISOString(),
-        opts.emr,
-      );
-      for (const slot of this.toFreeWindows(raw)) {
-        const key = `${slot.start}|${slot.end ?? ''}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(slot);
+    for (const day of opts.horizonDates) {
+      const { startMs, endMs } = clinicDayBoundsUtcMs(day, this.timezone);
+      try {
+        const raw = await this.getTimeslotsWithRetry(
+          opts.careUnitId,
+          opts.resourceId,
+          opts.healthcareServiceId,
+          new Date(startMs).toISOString(),
+          new Date(endMs).toISOString(),
+          opts.emr,
+        );
+        for (const slot of this.toFreeWindows(raw)) {
+          const key = `${slot.start}|${slot.end ?? ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(slot);
+        }
+      } catch (err) {
+        closedDaysDueToError.push(day);
+        this.logger.warn(
+          `Leyr timeslots failed day=${day} resource=${opts.resourceId}: ${this.errorMessage(err)} — closing day`,
+        );
       }
-      // Small pause — Leyr rate-limits / times out under bursty day scans.
       await new Promise((r) => setTimeout(r, 80));
     }
-    return merged;
-  }
-
-  /** Midnight in clinic timezone for YYYY-MM-DD, as UTC epoch ms. */
-  private clinicDayStartUtcMs(day: string): number {
-    // Europe/Stockholm is UTC+1 / UTC+2 — resolve via Intl offset at noon UTC.
-    const noonUtc = new Date(`${day}T12:00:00.000Z`);
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: this.timezone,
-      timeZoneName: 'shortOffset',
-      hour: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(noonUtc);
-    const tzName = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
-    const m = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(tzName);
-    const offsetHours = m ? Number(m[1]) : 2;
-    const offsetMins = m?.[2] ? Number(m[2]) : 0;
-    const offsetMs =
-      (offsetHours * 60 + Math.sign(offsetHours) * offsetMins) * 60_000;
-    return Date.parse(`${day}T00:00:00.000Z`) - offsetMs;
+    return { slots: merged, closedDaysDueToError };
   }
 
   private async getTimeslotsWithRetry(
@@ -411,10 +452,10 @@ export class GhlAvailabilitySyncService {
         );
       } catch (err) {
         lastError = err;
-        if (i < attempts && this.isTransientTimeout(err)) {
+        if (i < attempts && this.isTransientLeyrError(err)) {
           const waitMs = 1000 * i;
           this.logger.warn(
-            `Leyr timeslots timed out ${start}→${end} (attempt ${i}/${attempts}), retry in ${waitMs}ms`,
+            `Leyr timeslots retry ${start}→${end} (attempt ${i}/${attempts}), wait ${waitMs}ms`,
           );
           await new Promise((r) => setTimeout(r, waitMs));
           continue;
@@ -490,14 +531,17 @@ export class GhlAvailabilitySyncService {
     schedule: Record<string, unknown>,
     calendarId: string,
   ): boolean {
-    const ids = Array.isArray(schedule.calendarIds)
-      ? schedule.calendarIds.map(String)
-      : [];
-    if (ids.length === 1 && ids[0] === calendarId) return true;
     const name = typeof schedule.name === 'string' ? schedule.name : '';
+    // Only our named schedules — never treat arbitrary single-calendar
+    // schedules as dedicated (would overwrite human-made ones).
     return (
       name.startsWith(this.scheduleNamePrefix) && name.includes(calendarId)
     );
+  }
+
+  private isLegacyExperimentalSchedule(schedule: Record<string, unknown>): boolean {
+    const name = typeof schedule.name === 'string' ? schedule.name : '';
+    return /^Muntra availability\b/i.test(name);
   }
 
   /**
@@ -610,16 +654,21 @@ export class GhlAvailabilitySyncService {
       userId: opts.userId,
     });
 
+    await this.deleteLegacyExperimentalSchedules({
+      locationId: opts.locationId,
+      userId: opts.userId,
+      schedules: searched.schedules,
+    });
+
     // Never fall back to schedules[0] — that stomps shared Work Hours.
     const existing = searched.schedules.find((s) =>
       this.isDedicatedSchedule(s, opts.calendarId),
     );
 
-    const existingRules = this.parseExistingRules(existing?.rules);
-    const hasWday = existingRules.some((r) => r.type === 'wday');
-    const baseRules = hasWday ? existingRules : defaultWeekdayRules();
+    // Dedicated schedules must not use open weekly hours — only date rules
+    // open bookable time (avoids horizon-tail / weekend reopen via wday).
     const merged = mergeScheduleRules({
-      existing: baseRules,
+      existing: closedWeekdayRules(),
       dateRulesForHorizon: opts.dateRules,
       horizonDates: opts.horizonDates,
     });
@@ -657,5 +706,28 @@ export class GhlAvailabilitySyncService {
       schedules: searched.schedules,
       horizonDates: opts.horizonDates,
     });
+  }
+
+  private async deleteLegacyExperimentalSchedules(opts: {
+    locationId: string;
+    userId: string;
+    schedules: Record<string, unknown>[];
+  }): Promise<void> {
+    for (const schedule of opts.schedules) {
+      if (!schedule?.id) continue;
+      if (!this.isLegacyExperimentalSchedule(schedule)) continue;
+      try {
+        await this.ghl.deleteSchedule(String(schedule.id), {
+          locationId: opts.locationId,
+        });
+        this.logger.warn(
+          `Deleted legacy experimental schedule ${schedule.id} (${String(schedule.name ?? '')}) user=${opts.userId}`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete legacy schedule ${schedule.id}: ${this.errorMessage(err)}`,
+        );
+      }
+    }
   }
 }

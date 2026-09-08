@@ -815,6 +815,15 @@ export class GohighlevelMockService {
     return { schedule: this.mockSchedules[idx] };
   }
 
+  async deleteSchedule(scheduleId: string, _opts: { locationId: string }) {
+    const idx = this.mockSchedules.findIndex((s) => s.id === scheduleId);
+    if (idx === -1) {
+      throw new HttpException('Schedule not found', 404);
+    }
+    this.mockSchedules.splice(idx, 1);
+    return { succeded: true };
+  }
+
   async warmUpManagedTokens(): Promise<void> {
     this.logger.debug('Mock token warmup (no-op)');
   }

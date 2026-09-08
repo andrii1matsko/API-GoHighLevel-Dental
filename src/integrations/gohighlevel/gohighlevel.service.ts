@@ -1837,7 +1837,13 @@ export class GohighlevelService {
         : data && typeof data === 'object'
           ? JSON.stringify(data)
           : axiosError.message ?? '';
-    return /timed?\s*out|timeout|ECONNRESET|ETIMEDOUT/i.test(text);
+    const status = axiosError.response?.status;
+    return (
+      status === 429 ||
+      /timed?\s*out|timeout|ECONNRESET|ETIMEDOUT|Too Many Requests|rate.?limit/i.test(
+        text,
+      )
+    );
   }
 
   private async withScheduleRetries<T>(
@@ -1968,6 +1974,48 @@ export class GohighlevelService {
           : (axiosError.response?.data ??
             'Failed to update GoHighLevel schedule');
       this.logger.error('GoHighLevel update schedule failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async deleteSchedule(
+    scheduleId: string,
+    opts: { locationId: string; accessToken?: string },
+  ): Promise<{ succeded?: boolean } | Record<string, unknown>> {
+    if (!scheduleId?.trim()) {
+      throw new HttpException('scheduleId is required', 400);
+    }
+    const locationId = this.resolveLocationId(opts.locationId);
+    try {
+      return await this.withScheduleRetries('deleteSchedule', async () => {
+        const response = await this.runWithManagedLocationToken(
+          opts.accessToken,
+          locationId,
+          async (token) =>
+            firstValueFrom(
+              this.httpService.delete(
+                `${this.baseUrl}/calendars/schedules/${scheduleId}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    Version: '2021-04-15',
+                  },
+                  timeout: 60_000,
+                },
+              ),
+            ),
+        );
+        return (response.data ?? { succeded: true }) as Record<string, unknown>;
+      });
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : (axiosError.response?.data ??
+            'Failed to delete GoHighLevel schedule');
+      this.logger.error('GoHighLevel delete schedule failed', details);
       throw new HttpException(details, status);
     }
   }

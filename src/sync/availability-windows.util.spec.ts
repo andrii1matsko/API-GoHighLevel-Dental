@@ -4,6 +4,9 @@ import {
   mergeIntervals,
   mergeScheduleRules,
   defaultWeekdayRules,
+  closedWeekdayRules,
+  clinicDayBoundsUtcMs,
+  nextDayKey,
 } from './availability-windows.util';
 
 describe('availability-windows.util', () => {
@@ -20,6 +23,26 @@ describe('availability-windows.util', () => {
       { from: '09:00', to: '10:00' },
       { from: '13:00', to: '13:30' },
     ]);
+  });
+
+  it('clinicDayBoundsUtcMs uses local midnight (CEST = UTC+2)', () => {
+    const { startMs, endMs } = clinicDayBoundsUtcMs('2026-09-25', tz);
+    expect(new Date(startMs).toISOString()).toBe('2026-09-24T22:00:00.000Z');
+    expect(new Date(endMs).toISOString()).toBe('2026-09-25T22:00:00.000Z');
+    expect(nextDayKey('2026-09-25')).toBe('2026-09-26');
+  });
+
+  it('clinicDayBoundsUtcMs handles Europe/Stockholm DST fall-back day length', () => {
+    // 2026-10-25 is the Sunday clocks go back in EU — local day is 25h.
+    const { startMs, endMs } = clinicDayBoundsUtcMs('2026-10-25', tz);
+    expect(endMs - startMs).toBe(25 * 60 * 60 * 1000);
+  });
+
+  it('closedWeekdayRules close all seven days', () => {
+    expect(closedWeekdayRules()).toHaveLength(7);
+    expect(closedWeekdayRules().every((r) => r.intervals.length === 0)).toBe(
+      true,
+    );
   });
 
   it('intervalCoversSlot requires full slot inside window', () => {
