@@ -43,6 +43,10 @@ export interface AvailabilitySyncFilter {
  * Pushes Leyr/Muntra free timeslots into GHL staff Date-specific hours so the
  * native booking widget only offers real free times (no Google Conflict).
  *
+ * Horizon: always the full configured window (~31 days). Leyr is queried
+ * day-by-day only because wide ranges 504 or silently omit slots; results are
+ * merged before writing one complete dedicated schedule per staff.
+ *
  * Safety: refuses to update a schedule if any free slot would be dropped.
  * Isolation: one dedicated schedule per (userId, calendarId) — never reuse /
  * overwrite a shared Work Hours schedule.
@@ -313,8 +317,9 @@ export class GhlAvailabilitySyncService {
   }
 
   /**
-   * Leyr often times out on a full 31-day timeslots query. Fetch in ~7-day
-   * chunks with retries so one slow window cannot blank a whole staff day.
+   * Leyr often 504s or silently returns an incomplete timeslot list on wide
+   * ranges (e.g. drops 13:50 while keeping 13:00 on the same day). Fetch one
+   * clinic-local day at a time with retries.
    */
   private async fetchFreeWindowsChunked(opts: {
     careUnitId: string;
@@ -324,18 +329,33 @@ export class GhlAvailabilitySyncService {
     endMs: number;
     emr: string;
   }): Promise<FreeSlotWindow[]> {
-    const chunkMs = 7 * 24 * 60 * 60 * 1000;
     const merged: FreeSlotWindow[] = [];
     const seen = new Set<string>();
+    // Day keys in clinic TZ covering [startMs, endMs).
+    const dayKeys = listHorizonDates(
+      opts.startMs,
+      Math.max(
+        1,
+        Math.ceil((opts.endMs - opts.startMs) / (24 * 60 * 60 * 1000)) + 1,
+      ),
+      this.timezone,
+    );
 
-    for (let cursor = opts.startMs; cursor < opts.endMs; cursor += chunkMs) {
-      const chunkEnd = Math.min(cursor + chunkMs, opts.endMs);
+    for (const day of dayKeys) {
+      const dayStart = this.clinicDayStartUtcMs(day);
+      if (dayStart >= opts.endMs) continue;
+      if (dayStart + 24 * 60 * 60 * 1000 <= opts.startMs) continue;
+
+      const rangeStart = Math.max(opts.startMs, dayStart);
+      const rangeEnd = Math.min(opts.endMs, dayStart + 24 * 60 * 60 * 1000);
+      if (rangeEnd <= rangeStart) continue;
+
       const raw = await this.getTimeslotsWithRetry(
         opts.careUnitId,
         opts.resourceId,
         opts.healthcareServiceId,
-        new Date(cursor).toISOString(),
-        new Date(chunkEnd).toISOString(),
+        new Date(rangeStart).toISOString(),
+        new Date(rangeEnd).toISOString(),
         opts.emr,
       );
       for (const slot of this.toFreeWindows(raw)) {
@@ -344,8 +364,29 @@ export class GhlAvailabilitySyncService {
         seen.add(key);
         merged.push(slot);
       }
+      // Small pause — Leyr rate-limits / times out under bursty day scans.
+      await new Promise((r) => setTimeout(r, 80));
     }
     return merged;
+  }
+
+  /** Midnight in clinic timezone for YYYY-MM-DD, as UTC epoch ms. */
+  private clinicDayStartUtcMs(day: string): number {
+    // Europe/Stockholm is UTC+1 / UTC+2 — resolve via Intl offset at noon UTC.
+    const noonUtc = new Date(`${day}T12:00:00.000Z`);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: this.timezone,
+      timeZoneName: 'shortOffset',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(noonUtc);
+    const tzName = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT';
+    const m = /GMT([+-]\d{1,2})(?::?(\d{2}))?/.exec(tzName);
+    const offsetHours = m ? Number(m[1]) : 2;
+    const offsetMins = m?.[2] ? Number(m[2]) : 0;
+    const offsetMs =
+      (offsetHours * 60 + Math.sign(offsetHours) * offsetMins) * 60_000;
+    return Date.parse(`${day}T00:00:00.000Z`) - offsetMs;
   }
 
   private async getTimeslotsWithRetry(
