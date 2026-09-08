@@ -140,42 +140,39 @@ export function slotToInterval(
   const start = new Date(slot.start);
   if (Number.isNaN(start.getTime())) return null;
 
-  let end: Date;
+  // Tight window: exactly one bookable start for service duration.
+  // Using Leyr's longer end would open extra 15-min starts inside GHL widget.
+  const durationMs = Math.max(1, defaultDurationMinutes) * 60_000;
+  let end = new Date(start.getTime() + durationMs);
   if (slot.end) {
-    end = new Date(slot.end);
-    if (Number.isNaN(end.getTime()) || end <= start) {
-      end = new Date(start.getTime() + defaultDurationMinutes * 60_000);
+    const leyrEnd = new Date(slot.end);
+    if (!Number.isNaN(leyrEnd.getTime()) && leyrEnd > start) {
+      // Never widen past duration; may shorten if Leyr end is tighter.
+      end = new Date(Math.min(leyrEnd.getTime(), start.getTime() + durationMs));
     }
-  } else {
-    end = new Date(start.getTime() + defaultDurationMinutes * 60_000);
   }
 
   const date = dayKeyInTimezone(slot.start, timezone);
   const slotFrom = hmInTimezone(slot.start, timezone);
-  const slotTo = hmInTimezone(end.toISOString(), timezone);
-  // If end lands on next calendar day in TZ, clamp to 24:00 for same-day rule.
-  const endDay = dayKeyInTimezone(end.toISOString(), timezone);
-  const toHm = endDay === date ? slotTo : '24:00';
   const fromM = hmToMinutes(slotFrom);
-  const toM = hmToMinutes(toHm === '24:00' ? '24:00' : toHm);
-  if (Number.isNaN(fromM) || Number.isNaN(toM) || toM <= fromM) {
-    // Ensure at least default duration from start
-    return {
-      date,
-      interval: {
-        from: slotFrom,
-        to: minutesToHm(fromM + defaultDurationMinutes),
-      },
-      slotFrom,
-      slotTo: minutesToHm(fromM + defaultDurationMinutes),
-    };
+  if (Number.isNaN(fromM)) return null;
+
+  const endDay = dayKeyInTimezone(end.toISOString(), timezone);
+  let toHm =
+    endDay === date
+      ? hmInTimezone(end.toISOString(), timezone)
+      : minutesToHm(fromM + defaultDurationMinutes);
+  let toM = hmToMinutes(toHm);
+  if (Number.isNaN(toM) || toM <= fromM) {
+    toHm = minutesToHm(fromM + defaultDurationMinutes);
+    toM = fromM + defaultDurationMinutes;
   }
 
   return {
     date,
-    interval: { from: slotFrom, to: toHm === '24:00' ? '23:59' : toHm },
+    interval: { from: slotFrom, to: toHm },
     slotFrom,
-    slotTo: toHm === '24:00' ? '23:59' : toHm,
+    slotTo: toHm,
   };
 }
 

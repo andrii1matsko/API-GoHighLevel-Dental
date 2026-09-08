@@ -8,6 +8,7 @@ import { TriggerSyncDto } from './dto/trigger-sync.dto';
 import { PollLeyrDto } from './dto/poll-leyr.dto';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
 import { LeyrBackedFreeSlotsQueryDto } from './dto/leyr-backed-free-slots-query.dto';
+import { PushAvailabilityDto } from './dto/push-availability.dto';
 
 @ApiTags('Sync')
 @Controller('sync')
@@ -54,12 +55,16 @@ export class CalendarSyncController {
     summary:
       'Push Leyr/Muntra free timeslots into GHL Date-specific hours (native widget)',
     description:
-      'Updates staff custom schedules for each mapped calendar so the GHL booking ' +
-      'widget only shows real Muntra free windows. Requires SYNC_GHL_AVAILABILITY_SYNC_ENABLED=true. ' +
-      'Refuses to write if any free slot would be dropped.',
+      'Updates a dedicated staff schedule per calendar (never stomps Work Hours). ' +
+      'Optional body: ghlLocationId / ghlCalendarId. Env allow-lists: ' +
+      'SYNC_GHL_AVAILABILITY_LOCATION_IDS, SYNC_GHL_AVAILABILITY_CALENDAR_IDS. ' +
+      'Requires SYNC_GHL_AVAILABILITY_SYNC_ENABLED=true. Refuses to write if any free slot would be dropped.',
   })
-  pushAvailabilityToGhl() {
-    return this.ghlAvailabilitySyncService.syncAll('manual-api');
+  pushAvailabilityToGhl(@Body() body: PushAvailabilityDto) {
+    return this.ghlAvailabilitySyncService.syncAll('manual-api', {
+      ghlLocationId: body.ghlLocationId,
+      ghlCalendarId: body.ghlCalendarId,
+    });
   }
 
   @Post('calendar')

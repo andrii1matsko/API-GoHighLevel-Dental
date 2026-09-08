@@ -69,6 +69,24 @@ describe('availability-windows.util', () => {
     expect(d18?.intervals).toEqual([{ from: '09:50', to: '10:20' }]);
   });
 
+  it('does not widen intervals beyond service duration (avoids extra 15-min starts)', () => {
+    const { rules } = buildDateSpecificRules({
+      timezone: tz,
+      horizonDates: ['2026-09-18'],
+      defaultDurationMinutes: 30,
+      slots: [
+        {
+          start: '2026-09-18T09:00:00+02:00',
+          // Leyr sometimes returns a long end — must not open 09:00–11:00
+          end: '2026-09-18T11:00:00+02:00',
+        },
+      ],
+    });
+    expect(rules.find((r) => r.date === '2026-09-18')?.intervals).toEqual([
+      { from: '09:00', to: '09:30' },
+    ]);
+  });
+
   it('closes days with zero free slots so weekly hours cannot reopen them', () => {
     const { rules } = buildDateSpecificRules({
       timezone: tz,

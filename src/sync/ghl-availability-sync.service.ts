@@ -23,6 +23,7 @@ export interface AvailabilitySyncResult {
   enabled: boolean;
   horizonDays: number;
   timezone: string;
+  skipped?: string;
   calendars: Array<{
     ghlCalendarId: string;
     locationId: string;
@@ -33,11 +34,18 @@ export interface AvailabilitySyncResult {
   completedAt: string;
 }
 
+export interface AvailabilitySyncFilter {
+  ghlLocationId?: string;
+  ghlCalendarId?: string;
+}
+
 /**
  * Pushes Leyr/Muntra free timeslots into GHL staff Date-specific hours so the
  * native booking widget only offers real free times (no Google Conflict).
  *
  * Safety: refuses to update a schedule if any free slot would be dropped.
+ * Isolation: one dedicated schedule per (userId, calendarId) — never reuse /
+ * overwrite a shared Work Hours schedule.
  */
 @Injectable()
 export class GhlAvailabilitySyncService {
@@ -46,6 +54,9 @@ export class GhlAvailabilitySyncService {
   private readonly horizonDays: number;
   private readonly timezone: string;
   private readonly defaultDurationMinutes: number;
+  private readonly allowedLocationIds: Set<string> | null;
+  private readonly allowedCalendarIds: Set<string> | null;
+  private readonly scheduleNamePrefix = 'Leyr/Muntra avail';
   private running = false;
 
   constructor(
@@ -57,7 +68,6 @@ export class GhlAvailabilitySyncService {
     this.enabled =
       this.config.get<string>('SYNC_GHL_AVAILABILITY_SYNC_ENABLED', 'false') ===
       'true';
-    // Max known window: Leyr free-slots / poll forward (cap 31 days).
     const configured = Number(
       this.config.get<string | number>(
         'SYNC_GHL_AVAILABILITY_HORIZON_DAYS',
@@ -79,6 +89,21 @@ export class GhlAvailabilitySyncService {
         30,
       ),
     );
+    this.allowedLocationIds = this.parseIdSet(
+      this.config.get<string>('SYNC_GHL_AVAILABILITY_LOCATION_IDS'),
+    );
+    this.allowedCalendarIds = this.parseIdSet(
+      this.config.get<string>('SYNC_GHL_AVAILABILITY_CALENDAR_IDS'),
+    );
+  }
+
+  private parseIdSet(raw?: string | null): Set<string> | null {
+    if (!raw?.trim()) return null;
+    const ids = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return ids.length ? new Set(ids) : null;
   }
 
   @Cron('30 */15 * * * *')
@@ -87,7 +112,10 @@ export class GhlAvailabilitySyncService {
     await this.syncAll('scheduled');
   }
 
-  async syncAll(trigger = 'manual'): Promise<AvailabilitySyncResult> {
+  async syncAll(
+    trigger = 'manual',
+    filter: AvailabilitySyncFilter = {},
+  ): Promise<AvailabilitySyncResult> {
     if (!this.enabled) {
       return {
         enabled: false,
@@ -98,11 +126,14 @@ export class GhlAvailabilitySyncService {
       };
     }
     if (this.running) {
-      this.logger.warn(`Availability sync skipped (already running) [${trigger}]`);
+      this.logger.warn(
+        `Availability sync skipped (already running) [${trigger}]`,
+      );
       return {
         enabled: true,
         horizonDays: this.horizonDays,
         timezone: this.timezone,
+        skipped: 'already-running',
         calendars: [],
         completedAt: new Date().toISOString(),
       };
@@ -117,8 +148,36 @@ export class GhlAvailabilitySyncService {
         },
       });
 
+      const filtered = mappings.filter((m) => {
+        if (
+          filter.ghlCalendarId &&
+          m.ghlCalendarId !== filter.ghlCalendarId.trim()
+        ) {
+          return false;
+        }
+        if (
+          filter.ghlLocationId &&
+          m.facility.ghlLocationId !== filter.ghlLocationId.trim()
+        ) {
+          return false;
+        }
+        if (
+          this.allowedCalendarIds &&
+          !this.allowedCalendarIds.has(m.ghlCalendarId)
+        ) {
+          return false;
+        }
+        if (
+          this.allowedLocationIds &&
+          !this.allowedLocationIds.has(m.facility.ghlLocationId)
+        ) {
+          return false;
+        }
+        return true;
+      });
+
       const calendars: AvailabilitySyncResult['calendars'] = [];
-      for (const mapping of mappings) {
+      for (const mapping of filtered) {
         calendars.push(
           await this.syncCalendar({
             ghlCalendarId: mapping.ghlCalendarId,
@@ -202,7 +261,7 @@ export class GhlAvailabilitySyncService {
         });
         slotsCovered += coveredSlotCount;
 
-        await this.upsertStaffSchedule({
+        await this.upsertDedicatedStaffSchedule({
           locationId: opts.locationId,
           userId: member.ghlUserId,
           calendarId: opts.ghlCalendarId,
@@ -234,7 +293,10 @@ export class GhlAvailabilitySyncService {
     const out: FreeSlotWindow[] = [];
     for (const slot of list) {
       if (!slot?.start || slot.available === false) continue;
-      out.push({ start: String(slot.start), end: slot.end ? String(slot.end) : undefined });
+      out.push({
+        start: String(slot.start),
+        end: slot.end ? String(slot.end) : undefined,
+      });
     }
     return out;
   }
@@ -257,9 +319,7 @@ export class GhlAvailabilitySyncService {
       const intervals = Array.isArray(r.intervals)
         ? (r.intervals as { from: string; to: string }[]).filter(
             (iv) =>
-              iv &&
-              typeof iv.from === 'string' &&
-              typeof iv.to === 'string',
+              iv && typeof iv.from === 'string' && typeof iv.to === 'string',
           )
         : [];
       if (r.type === 'wday' && typeof r.day === 'string' && wdays.has(r.day)) {
@@ -282,7 +342,28 @@ export class GhlAvailabilitySyncService {
     return out;
   }
 
-  private async upsertStaffSchedule(opts: {
+  private dedicatedScheduleName(calendarId: string, staffLabel: string): string {
+    return `${this.scheduleNamePrefix} · ${calendarId} · ${staffLabel}`.slice(
+      0,
+      120,
+    );
+  }
+
+  private isDedicatedSchedule(
+    schedule: Record<string, unknown>,
+    calendarId: string,
+  ): boolean {
+    const ids = Array.isArray(schedule.calendarIds)
+      ? schedule.calendarIds.map(String)
+      : [];
+    if (ids.length === 1 && ids[0] === calendarId) return true;
+    const name = typeof schedule.name === 'string' ? schedule.name : '';
+    return (
+      name.startsWith(this.scheduleNamePrefix) && name.includes(calendarId)
+    );
+  }
+
+  private async upsertDedicatedStaffSchedule(opts: {
     locationId: string;
     userId: string;
     calendarId: string;
@@ -296,14 +377,10 @@ export class GhlAvailabilitySyncService {
       calendarId: opts.calendarId,
     });
 
-    const existing =
-      searched.schedules.find((s) => {
-        const ids = s.calendarIds;
-        return (
-          Array.isArray(ids) &&
-          ids.map(String).includes(opts.calendarId)
-        );
-      }) ?? searched.schedules[0];
+    // Never fall back to schedules[0] — that stomps shared Work Hours.
+    const existing = searched.schedules.find((s) =>
+      this.isDedicatedSchedule(s, opts.calendarId),
+    );
 
     const existingRules = this.parseExistingRules(existing?.rules);
     const hasWday = existingRules.some((r) => r.type === 'wday');
@@ -314,9 +391,7 @@ export class GhlAvailabilitySyncService {
       horizonDates: opts.horizonDates,
     });
 
-    const name =
-      (typeof existing?.name === 'string' && existing.name.trim()) ||
-      `Muntra availability — ${opts.staffLabel}`.slice(0, 120);
+    const name = this.dedicatedScheduleName(opts.calendarId, opts.staffLabel);
 
     if (existing?.id) {
       await this.ghl.updateSchedule(String(existing.id), {
@@ -326,7 +401,7 @@ export class GhlAvailabilitySyncService {
         rules: merged,
       });
       this.logger.log(
-        `Updated GHL schedule ${existing.id} user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
+        `Updated dedicated GHL schedule ${existing.id} user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
       );
       return;
     }
@@ -340,7 +415,7 @@ export class GhlAvailabilitySyncService {
       rules: merged,
     });
     this.logger.log(
-      `Created GHL schedule user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
+      `Created dedicated GHL schedule user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
     );
   }
 }
