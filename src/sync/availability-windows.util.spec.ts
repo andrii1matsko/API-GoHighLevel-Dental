@@ -104,7 +104,7 @@ describe('availability-windows.util', () => {
     ]);
   });
 
-  it('mergeScheduleRules keeps wday and replaces only horizon dates', () => {
+  it('mergeScheduleRules keeps wday and replaces all date rules with horizon set', () => {
     const merged = mergeScheduleRules({
       existing: [
         ...defaultWeekdayRules(),
@@ -130,9 +130,10 @@ describe('availability-windows.util', () => {
     });
 
     expect(merged.filter((r) => r.type === 'wday')).toHaveLength(5);
+    expect(merged.filter((r) => r.type === 'date')).toHaveLength(1);
     expect(
       merged.find((r) => r.type === 'date' && r.date === '2026-09-01'),
-    ).toBeTruthy();
+    ).toBeUndefined();
     expect(
       merged.find((r) => r.type === 'date' && r.date === '2026-09-17'),
     ).toEqual({

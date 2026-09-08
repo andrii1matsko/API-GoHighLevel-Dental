@@ -253,12 +253,11 @@ export function mergeScheduleRules(opts: {
   dateRulesForHorizon: DateScheduleRule[];
   horizonDates: string[];
 }): ScheduleRule[] {
-  const horizon = new Set(opts.horizonDates);
-  const kept = opts.existing.filter((r) => {
-    if (r.type === 'wday') return true;
-    if (r.type === 'date') return !horizon.has(r.date);
-    return true;
-  });
+  // Keep weekly hours only. Drop ALL prior date-specific rules so the payload
+  // stays bounded (~horizonDays). Keeping out-of-horizon dates caused GHL
+  // schedule updates to grow without limit and time out.
+  void opts.horizonDates;
+  const kept = opts.existing.filter((r) => r.type === 'wday');
   return [...kept, ...opts.dateRulesForHorizon];
 }
 

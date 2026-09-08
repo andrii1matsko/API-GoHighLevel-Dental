@@ -1828,6 +1828,43 @@ export class GohighlevelService {
     }
   }
 
+  private isTransientGhlTimeout(error: unknown): boolean {
+    const axiosError = error as AxiosError;
+    const data = axiosError.response?.data;
+    const text =
+      typeof data === 'string'
+        ? data
+        : data && typeof data === 'object'
+          ? JSON.stringify(data)
+          : axiosError.message ?? '';
+    return /timed?\s*out|timeout|ECONNRESET|ETIMEDOUT/i.test(text);
+  }
+
+  private async withScheduleRetries<T>(
+    label: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const attempts = 3;
+    let lastError: unknown;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        if (i < attempts && this.isTransientGhlTimeout(error)) {
+          const waitMs = 1500 * i;
+          this.logger.warn(
+            `${label} timed out (attempt ${i}/${attempts}), retry in ${waitMs}ms`,
+          );
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  }
+
   async createSchedule(payload: {
     locationId: string;
     userId: string;
@@ -1839,33 +1876,36 @@ export class GohighlevelService {
   }): Promise<Record<string, unknown>> {
     const locationId = this.resolveLocationId(payload.locationId);
     try {
-      const response = await this.runWithManagedLocationToken(
-        payload.accessToken,
-        locationId,
-        async (token) =>
-          firstValueFrom(
-            this.httpService.post(
-              `${this.baseUrl}/calendars/schedules`,
-              {
-                locationId,
-                userId: payload.userId,
-                name: payload.name,
-                timezone: payload.timezone,
-                rules: payload.rules,
-                ...(payload.calendarIds?.length
-                  ? { calendarIds: payload.calendarIds }
-                  : {}),
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  Version: '2021-04-15',
+      return await this.withScheduleRetries('createSchedule', async () => {
+        const response = await this.runWithManagedLocationToken(
+          payload.accessToken,
+          locationId,
+          async (token) =>
+            firstValueFrom(
+              this.httpService.post(
+                `${this.baseUrl}/calendars/schedules`,
+                {
+                  locationId,
+                  userId: payload.userId,
+                  name: payload.name,
+                  timezone: payload.timezone,
+                  rules: payload.rules,
+                  ...(payload.calendarIds?.length
+                    ? { calendarIds: payload.calendarIds }
+                    : {}),
                 },
-              },
+                {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    Version: '2021-04-15',
+                  },
+                  timeout: 120_000,
+                },
+              ),
             ),
-          ),
-      );
-      return response.data as Record<string, unknown>;
+        );
+        return response.data as Record<string, unknown>;
+      });
     } catch (error) {
       const axiosError = error as AxiosError;
       const status = axiosError.response?.status ?? 502;
@@ -1894,28 +1934,31 @@ export class GohighlevelService {
     }
     const locationId = this.resolveLocationId(payload.locationId);
     try {
-      const response = await this.runWithManagedLocationToken(
-        payload.accessToken,
-        locationId,
-        async (token) =>
-          firstValueFrom(
-            this.httpService.put(
-              `${this.baseUrl}/calendars/schedules/${scheduleId}`,
-              {
-                ...(payload.name ? { name: payload.name } : {}),
-                ...(payload.timezone ? { timezone: payload.timezone } : {}),
-                ...(payload.rules ? { rules: payload.rules } : {}),
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  Version: '2021-04-15',
+      return await this.withScheduleRetries('updateSchedule', async () => {
+        const response = await this.runWithManagedLocationToken(
+          payload.accessToken,
+          locationId,
+          async (token) =>
+            firstValueFrom(
+              this.httpService.put(
+                `${this.baseUrl}/calendars/schedules/${scheduleId}`,
+                {
+                  ...(payload.name ? { name: payload.name } : {}),
+                  ...(payload.timezone ? { timezone: payload.timezone } : {}),
+                  ...(payload.rules ? { rules: payload.rules } : {}),
                 },
-              },
+                {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    Version: '2021-04-15',
+                  },
+                  timeout: 120_000,
+                },
+              ),
             ),
-          ),
-      );
-      return response.data as Record<string, unknown>;
+        );
+        return response.data as Record<string, unknown>;
+      });
     } catch (error) {
       const axiosError = error as AxiosError;
       const status = axiosError.response?.status ?? 502;

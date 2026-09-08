@@ -270,6 +270,8 @@ export class GhlAvailabilitySyncService {
           staffLabel: member.name ?? member.ghlUserId,
         });
         staffUpdated += 1;
+        // Brief pause — GHL schedule API is slow / rate-sensitive.
+        await new Promise((r) => setTimeout(r, 400));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         errors.push(`${member.ghlUserId}: ${message}`);
