@@ -67,6 +67,33 @@ export class CalendarSyncController {
     });
   }
 
+  @Get('availability/inspect')
+  @ApiOperation({
+    summary: 'Inspect GHL staff schedules for Muntra availability debugging',
+    description:
+      'Returns all schedules for a user and sample date-specific rules. ' +
+      'Use to verify Work Hours leftovers are not hiding afternoon slots.',
+  })
+  inspectAvailability(
+    @Query('locationId') locationId: string,
+    @Query('userId') userId: string,
+    @Query('calendarId') calendarId: string,
+    @Query('dates') dates?: string,
+  ) {
+    const sampleDates = dates
+      ? dates
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : ['2026-09-17', '2026-09-18'];
+    return this.ghlAvailabilitySyncService.inspectStaffAvailability({
+      locationId,
+      userId,
+      calendarId,
+      sampleDates,
+    });
+  }
+
   @Post('calendar')
   @ApiOperation({
     summary: 'Manually trigger appointment sync',

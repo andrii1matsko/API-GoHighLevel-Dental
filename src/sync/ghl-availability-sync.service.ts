@@ -365,6 +365,101 @@ export class GhlAvailabilitySyncService {
     );
   }
 
+  /**
+   * Read-only dump of GHL schedules + sample date rules for one staff /
+   * calendar. Used to diagnose missing widget slots (e.g. afternoon 13:00).
+   */
+  async inspectStaffAvailability(opts: {
+    locationId: string;
+    userId: string;
+    calendarId: string;
+    sampleDates?: string[];
+  }): Promise<Record<string, unknown>> {
+    const searched = await this.ghl.searchSchedules({
+      locationId: opts.locationId,
+      userId: opts.userId,
+    });
+    const sample =
+      opts.sampleDates?.length ?
+        opts.sampleDates
+      : listHorizonDates(Date.now(), 3, this.timezone).slice(0, 3);
+
+    const schedules = searched.schedules.map((s) => {
+      const rules = this.parseExistingRules(s.rules);
+      const dateRules = rules.filter(
+        (r): r is Extract<ScheduleRule, { type: 'date' }> => r.type === 'date',
+      );
+      const sampleRules = dateRules.filter((r) => sample.includes(r.date));
+      return {
+        id: s.id,
+        name: s.name,
+        calendarIds: s.calendarIds,
+        dedicated: this.isDedicatedSchedule(s, opts.calendarId),
+        timezone: s.timezone,
+        wdayCount: rules.filter((r) => r.type === 'wday').length,
+        dateRuleCount: dateRules.length,
+        sampleDateRules: sampleRules,
+      };
+    });
+
+    return {
+      locationId: opts.locationId,
+      userId: opts.userId,
+      calendarId: opts.calendarId,
+      sampleDates: sample,
+      scheduleCount: schedules.length,
+      schedules,
+    };
+  }
+
+  private scheduleAppliesToCalendar(
+    schedule: Record<string, unknown>,
+    calendarId: string,
+  ): boolean {
+    const ids = Array.isArray(schedule.calendarIds)
+      ? schedule.calendarIds.map(String)
+      : [];
+    // Empty calendarIds = applies broadly (typical Work Hours).
+    if (ids.length === 0) return true;
+    return ids.includes(calendarId);
+  }
+
+  /**
+   * GHL intersects availability across a user's schedules for a calendar.
+   * Old stomps left morning-only date rules on Work Hours, which then hid
+   * afternoon Muntra slots (e.g. 13:00) even when the dedicated schedule had
+   * them. Strip horizon date rules from non-dedicated schedules.
+   */
+  private async clearHorizonDateRulesFromOtherSchedules(opts: {
+    locationId: string;
+    userId: string;
+    calendarId: string;
+    schedules: Record<string, unknown>[];
+    horizonDates: string[];
+  }): Promise<void> {
+    const horizon = new Set(opts.horizonDates);
+    for (const schedule of opts.schedules) {
+      if (!schedule?.id) continue;
+      if (this.isDedicatedSchedule(schedule, opts.calendarId)) continue;
+      if (!this.scheduleAppliesToCalendar(schedule, opts.calendarId)) continue;
+
+      const rules = this.parseExistingRules(schedule.rules);
+      const next = rules.filter(
+        (r) => !(r.type === 'date' && horizon.has(r.date)),
+      );
+      const removed = rules.length - next.length;
+      if (removed === 0) continue;
+
+      await this.ghl.updateSchedule(String(schedule.id), {
+        locationId: opts.locationId,
+        rules: next,
+      });
+      this.logger.warn(
+        `Cleared ${removed} horizon date-rule(s) from non-dedicated schedule ${schedule.id} (${String(schedule.name ?? '')}) user=${opts.userId} so they cannot hide Muntra windows`,
+      );
+    }
+  }
+
   private async upsertDedicatedStaffSchedule(opts: {
     locationId: string;
     userId: string;
@@ -373,10 +468,11 @@ export class GhlAvailabilitySyncService {
     horizonDates: string[];
     staffLabel: string;
   }): Promise<void> {
+    // Load ALL user schedules (no calendarId filter) so we can find Work Hours
+    // leftovers that still apply to this calendar and intersect free-slots.
     const searched = await this.ghl.searchSchedules({
       locationId: opts.locationId,
       userId: opts.userId,
-      calendarId: opts.calendarId,
     });
 
     // Never fall back to schedules[0] — that stomps shared Work Hours.
@@ -405,19 +501,26 @@ export class GhlAvailabilitySyncService {
       this.logger.log(
         `Updated dedicated GHL schedule ${existing.id} user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
       );
-      return;
+    } else {
+      await this.ghl.createSchedule({
+        locationId: opts.locationId,
+        userId: opts.userId,
+        name,
+        timezone: this.timezone,
+        calendarIds: [opts.calendarId],
+        rules: merged,
+      });
+      this.logger.log(
+        `Created dedicated GHL schedule user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
+      );
     }
 
-    await this.ghl.createSchedule({
+    await this.clearHorizonDateRulesFromOtherSchedules({
       locationId: opts.locationId,
       userId: opts.userId,
-      name,
-      timezone: this.timezone,
-      calendarIds: [opts.calendarId],
-      rules: merged,
+      calendarId: opts.calendarId,
+      schedules: searched.schedules,
+      horizonDates: opts.horizonDates,
     });
-    this.logger.log(
-      `Created dedicated GHL schedule user=${opts.userId} calendar=${opts.calendarId} dateRules=${opts.dateRules.length}`,
-    );
   }
 }
