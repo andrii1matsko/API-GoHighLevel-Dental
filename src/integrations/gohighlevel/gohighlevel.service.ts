@@ -1778,4 +1778,154 @@ export class GohighlevelService {
       throw new HttpException(details, status);
     }
   }
+
+  /**
+   * Staff availability schedules (weekly + date-specific hours).
+   * Used to drive native booking-widget free slots from Muntra/Leyr timeslots.
+   */
+  async searchSchedules(opts: {
+    locationId: string;
+    userId: string;
+    calendarId?: string;
+    accessToken?: string;
+  }): Promise<{ schedules: Record<string, unknown>[] }> {
+    const locationId = this.resolveLocationId(opts.locationId);
+    if (!opts.userId?.trim()) {
+      throw new HttpException('userId is required', 400);
+    }
+    try {
+      const response = await this.runWithManagedLocationToken(
+        opts.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.get(`${this.baseUrl}/calendars/schedules/search`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Version: '2021-04-15',
+              },
+              params: {
+                locationId,
+                userId: opts.userId,
+                ...(opts.calendarId ? { calendarId: opts.calendarId } : {}),
+                limit: 50,
+              },
+            }),
+          ),
+      );
+      const data = response.data as { schedules?: Record<string, unknown>[] };
+      return { schedules: Array.isArray(data?.schedules) ? data.schedules : [] };
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : (axiosError.response?.data ??
+            'Failed to search GoHighLevel schedules');
+      this.logger.error('GoHighLevel search schedules failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async createSchedule(payload: {
+    locationId: string;
+    userId: string;
+    name: string;
+    timezone: string;
+    rules: unknown[];
+    calendarIds?: string[];
+    accessToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const locationId = this.resolveLocationId(payload.locationId);
+    try {
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.post(
+              `${this.baseUrl}/calendars/schedules`,
+              {
+                locationId,
+                userId: payload.userId,
+                name: payload.name,
+                timezone: payload.timezone,
+                rules: payload.rules,
+                ...(payload.calendarIds?.length
+                  ? { calendarIds: payload.calendarIds }
+                  : {}),
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data as Record<string, unknown>;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : (axiosError.response?.data ??
+            'Failed to create GoHighLevel schedule');
+      this.logger.error('GoHighLevel create schedule failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
+  async updateSchedule(
+    scheduleId: string,
+    payload: {
+      locationId: string;
+      name?: string;
+      timezone?: string;
+      rules?: unknown[];
+      accessToken?: string;
+    },
+  ): Promise<Record<string, unknown>> {
+    if (!scheduleId?.trim()) {
+      throw new HttpException('scheduleId is required', 400);
+    }
+    const locationId = this.resolveLocationId(payload.locationId);
+    try {
+      const response = await this.runWithManagedLocationToken(
+        payload.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.put(
+              `${this.baseUrl}/calendars/schedules/${scheduleId}`,
+              {
+                ...(payload.name ? { name: payload.name } : {}),
+                ...(payload.timezone ? { timezone: payload.timezone } : {}),
+                ...(payload.rules ? { rules: payload.rules } : {}),
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data as Record<string, unknown>;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : (axiosError.response?.data ??
+            'Failed to update GoHighLevel schedule');
+      this.logger.error('GoHighLevel update schedule failed', details);
+      throw new HttpException(details, status);
+    }
+  }
 }

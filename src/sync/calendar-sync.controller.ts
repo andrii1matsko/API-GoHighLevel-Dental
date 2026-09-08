@@ -3,6 +3,7 @@ import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
 import { CalendarSyncService } from './calendar-sync.service';
 import { LeyrPollingService } from './leyr-polling.service';
 import { AvailabilityService } from './availability.service';
+import { GhlAvailabilitySyncService } from './ghl-availability-sync.service';
 import { TriggerSyncDto } from './dto/trigger-sync.dto';
 import { PollLeyrDto } from './dto/poll-leyr.dto';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
@@ -15,6 +16,7 @@ export class CalendarSyncController {
     private readonly calendarSyncService: CalendarSyncService,
     private readonly leyrPollingService: LeyrPollingService,
     private readonly availabilityService: AvailabilityService,
+    private readonly ghlAvailabilitySyncService: GhlAvailabilitySyncService,
   ) {}
 
   @Get('calendars/:calendarId/free-slots')
@@ -45,6 +47,19 @@ export class CalendarSyncController {
       timezone: query.timezone,
       ghlUserId: query.userId,
     });
+  }
+
+  @Post('availability/push')
+  @ApiOperation({
+    summary:
+      'Push Leyr/Muntra free timeslots into GHL Date-specific hours (native widget)',
+    description:
+      'Updates staff custom schedules for each mapped calendar so the GHL booking ' +
+      'widget only shows real Muntra free windows. Requires SYNC_GHL_AVAILABILITY_SYNC_ENABLED=true. ' +
+      'Refuses to write if any free slot would be dropped.',
+  })
+  pushAvailabilityToGhl() {
+    return this.ghlAvailabilitySyncService.syncAll('manual-api');
   }
 
   @Post('calendar')

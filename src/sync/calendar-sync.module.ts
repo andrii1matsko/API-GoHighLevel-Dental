@@ -8,6 +8,7 @@ import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 import { MappingsController } from './mappings.controller';
 import { AvailabilityService } from './availability.service';
+import { GhlAvailabilitySyncService } from './ghl-availability-sync.service';
 
 @Module({
   imports: [forwardRef(() => GohighlevelModule), LeyrModule],
@@ -18,12 +19,14 @@ import { AvailabilityService } from './availability.service';
     IdentityResolverService,
     ServiceMappingResolverService,
     AvailabilityService,
+    GhlAvailabilitySyncService,
   ],
   exports: [
     CalendarSyncService,
     IdentityResolverService,
     ServiceMappingResolverService,
     AvailabilityService,
+    GhlAvailabilitySyncService,
   ],
 })
 export class CalendarSyncModule {}

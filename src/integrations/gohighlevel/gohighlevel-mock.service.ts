@@ -754,6 +754,67 @@ export class GohighlevelMockService {
     return generateFreeSlots(query.startDate, query.endDate, query.timezone);
   }
 
+  private readonly mockSchedules: Array<Record<string, unknown>> = [];
+
+  async searchSchedules(opts: {
+    locationId: string;
+    userId: string;
+    calendarId?: string;
+  }) {
+    const schedules = this.mockSchedules.filter((s) => {
+      if (s.userId !== opts.userId) return false;
+      if (opts.calendarId) {
+        const ids = s.calendarIds;
+        return Array.isArray(ids) && ids.map(String).includes(opts.calendarId);
+      }
+      return true;
+    });
+    return { schedules };
+  }
+
+  async createSchedule(payload: {
+    locationId: string;
+    userId: string;
+    name: string;
+    timezone: string;
+    rules: unknown[];
+    calendarIds?: string[];
+  }) {
+    const schedule = {
+      id: `sch-mock-${randomUUID().slice(0, 8)}`,
+      locationId: payload.locationId,
+      userId: payload.userId,
+      name: payload.name,
+      timezone: payload.timezone,
+      rules: payload.rules,
+      calendarIds: payload.calendarIds ?? [],
+    };
+    this.mockSchedules.push(schedule);
+    return { schedule };
+  }
+
+  async updateSchedule(
+    scheduleId: string,
+    payload: {
+      locationId: string;
+      name?: string;
+      timezone?: string;
+      rules?: unknown[];
+    },
+  ) {
+    const idx = this.mockSchedules.findIndex((s) => s.id === scheduleId);
+    if (idx === -1) {
+      throw new HttpException('Schedule not found', 404);
+    }
+    this.mockSchedules[idx] = {
+      ...this.mockSchedules[idx],
+      ...(payload.name ? { name: payload.name } : {}),
+      ...(payload.timezone ? { timezone: payload.timezone } : {}),
+      ...(payload.rules ? { rules: payload.rules } : {}),
+    };
+    return { schedule: this.mockSchedules[idx] };
+  }
+
   async warmUpManagedTokens(): Promise<void> {
     this.logger.debug('Mock token warmup (no-op)');
   }
