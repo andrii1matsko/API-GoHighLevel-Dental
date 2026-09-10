@@ -114,8 +114,10 @@ export class GhlAvailabilitySyncService {
   /**
    * Prefer each GHL calendar's own service duration so Kållered (40) and
    * Majorstua calendars (often 30/45) stay correct under one shared env default.
-   * Also aligns slotInterval to duration — interval 15 with touching open
-   * windows invents mid-slot starts (10:45…) that Leyr never offered.
+   *
+   * Note: GHL slotInterval must equal slotDuration (set in Calendar settings).
+   * Interval 15 with contiguous open windows invents mid starts (10:45…).
+   * We do not auto-PUT calendars — partial updates have reset other fields.
    */
   private async resolveSlotDurationMinutes(
     locationId: string,
@@ -131,38 +133,18 @@ export class GhlAvailabilitySyncService {
       const cal = calendars.find((c) => String(c.id) === calendarId);
       const duration = Number(cal?.slotDuration);
       const interval = Number(cal?.slotInterval);
-      const durationMinutes =
-        Number.isFinite(duration) && duration > 0 && duration <= 480
-          ? Math.floor(duration)
-          : NaN;
-
       if (
-        Number.isFinite(durationMinutes) &&
+        Number.isFinite(duration) &&
         Number.isFinite(interval) &&
         interval > 0 &&
-        interval !== durationMinutes
+        interval !== duration
       ) {
-        try {
-          await this.ghl.updateCalendar(
-            calendarId,
-            {
-              slotInterval: durationMinutes,
-              slotIntervalUnit: 'mins',
-            },
-            locationId,
-          );
-          this.logger.warn(
-            `Aligned GHL slotInterval ${interval}→${durationMinutes} for calendar=${calendarId} (stops phantom mid-window starts)`,
-          );
-        } catch (err) {
-          this.logger.warn(
-            `Could not align slotInterval calendar=${calendarId}: ${this.errorMessage(err)}`,
-          );
-        }
+        this.logger.warn(
+          `GHL calendar=${calendarId} slotInterval=${interval} ≠ slotDuration=${duration} — widget may invent mid-window starts. Set Interval = Duration in Calendar settings.`,
+        );
       }
-
-      if (Number.isFinite(durationMinutes)) {
-        return durationMinutes;
+      if (Number.isFinite(duration) && duration > 0 && duration <= 480) {
+        return Math.floor(duration);
       }
     } catch (err) {
       this.logger.warn(
