@@ -122,8 +122,10 @@ export function mergeIntervals(intervals: TimeIntervalHm[]): TimeIntervalHm[] {
       continue;
     }
     const lastTo = hmToMinutes(last.to);
-    // Merge overlapping or touching intervals (no gap).
-    if (fromM <= lastTo) {
+    // Merge overlaps only. Touching ends (10:30–11:15 + 11:15–12:00) must stay
+    // separate — otherwise GHL opens every slotInterval start inside the blob
+    // (10:45, 11:00, …) that Leyr never offered.
+    if (fromM < lastTo) {
       last.to = minutesToHm(Math.max(lastTo, toM));
     } else {
       out.push({ from: minutesToHm(fromM), to: minutesToHm(toM) });
@@ -252,7 +254,8 @@ export function clinicDayBoundsUtcMs(
 
 /**
  * Build date-specific rules for the full horizon.
- * - Every Leyr free slot becomes an open interval (merged per day).
+ * - Every Leyr free slot becomes an open interval (overlap-merged per day;
+ *   touching ends stay separate so GHL cannot invent mid-window starts).
  * - Every horizon day with no free slots gets intervals: [] (closes weekly hours).
  * Throws if any free slot would not be covered after merge (must not push).
  */

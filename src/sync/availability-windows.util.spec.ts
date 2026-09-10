@@ -25,6 +25,25 @@ describe('availability-windows.util', () => {
     ]);
   });
 
+  it('does not merge merely-touching intervals (keeps discrete Leyr starts)', () => {
+    // Adjacent 45-min Opus slots must not become 10:30–12:00 or GHL invents 10:45…
+    expect(
+      mergeIntervals([
+        { from: '10:30', to: '11:15' },
+        { from: '11:15', to: '12:00' },
+        { from: '12:30', to: '13:15' },
+        { from: '13:15', to: '14:00' },
+        { from: '14:00', to: '14:45' },
+      ]),
+    ).toEqual([
+      { from: '10:30', to: '11:15' },
+      { from: '11:15', to: '12:00' },
+      { from: '12:30', to: '13:15' },
+      { from: '13:15', to: '14:00' },
+      { from: '14:00', to: '14:45' },
+    ]);
+  });
+
   it('clinicDayBoundsUtcMs uses local midnight (CEST = UTC+2)', () => {
     const { startMs, endMs } = clinicDayBoundsUtcMs('2026-09-25', tz);
     expect(new Date(startMs).toISOString()).toBe('2026-09-24T22:00:00.000Z');
