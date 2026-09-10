@@ -111,6 +111,35 @@ export class GhlAvailabilitySyncService {
     return ids.length ? new Set(ids) : null;
   }
 
+  /**
+   * Prefer each GHL calendar's own service duration so Kållered (40) and
+   * Majorstua calendars (often 30/45) stay correct under one shared env default.
+   */
+  private async resolveSlotDurationMinutes(
+    locationId: string,
+    calendarId: string,
+  ): Promise<number> {
+    try {
+      const res = await this.ghl.getCalendars({ locationId });
+      const calendars = Array.isArray(
+        (res as { calendars?: unknown }).calendars,
+      )
+        ? ((res as { calendars: Record<string, unknown>[] }).calendars)
+        : [];
+      const cal = calendars.find((c) => String(c.id) === calendarId);
+      const n = Number(cal?.slotDuration);
+      if (Number.isFinite(n) && n > 0 && n <= 480) {
+        return Math.floor(n);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Could not read GHL slotDuration calendar=${calendarId}: ${this.errorMessage(err)}`,
+      );
+    }
+    const fallback = Number(this.defaultDurationMinutes);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 30;
+  }
+
   @Cron('30 */15 * * * *')
   async handleScheduledSync() {
     if (!this.enabled) return;
@@ -284,6 +313,10 @@ export class GhlAvailabilitySyncService {
     const now = Date.now();
     // Horizon is calendar days in clinic TZ — fetch exactly those days (no UTC tail).
     const horizonDates = listHorizonDates(now, this.horizonDays, this.timezone);
+    const durationMinutes = await this.resolveSlotDurationMinutes(
+      opts.locationId,
+      opts.ghlCalendarId,
+    );
 
     for (const member of opts.staff) {
       try {
@@ -304,7 +337,7 @@ export class GhlAvailabilitySyncService {
           slots,
           horizonDates,
           timezone: this.timezone,
-          defaultDurationMinutes: this.defaultDurationMinutes,
+          defaultDurationMinutes: durationMinutes,
         });
         slotsCovered += coveredSlotCount;
 
