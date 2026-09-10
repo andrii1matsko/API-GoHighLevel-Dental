@@ -670,6 +670,22 @@ export class GohighlevelMockService {
     return { calendar: cal ?? null };
   }
 
+  async updateCalendar(
+    calendarId: string,
+    body: Record<string, unknown>,
+    _locationId?: string,
+  ) {
+    if (!calendarId) {
+      throw new HttpException('Missing calendarId', 400);
+    }
+    const cal = MOCK_CALENDARS.find((c) => c.id === calendarId);
+    if (!cal) {
+      throw new HttpException('Calendar not found', 404);
+    }
+    Object.assign(cal, body);
+    return { calendar: cal };
+  }
+
   async createBlockSlot(payload: CreateBlockSlotDto) {
     const locationId = payload.locationId || MOCK_LOCATION_ID;
 
