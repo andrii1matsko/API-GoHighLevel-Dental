@@ -1597,6 +1597,50 @@ export class GohighlevelService {
     }
   }
 
+  async updateCalendar(
+    calendarId: string,
+    body: Record<string, unknown>,
+    locationId?: string,
+  ) {
+    if (!calendarId) {
+      throw new HttpException('Missing calendarId', 400);
+    }
+    const resolvedLocationId = this.resolveLocationId(locationId);
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        undefined,
+        resolvedLocationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.put(
+              `${this.baseUrl}/calendars/${calendarId}`,
+              body,
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                  'Content-Type': 'application/json',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : (axiosError.response?.data ??
+            'Failed to update GoHighLevel calendar');
+
+      this.logger.error('GoHighLevel update calendar failed', details);
+      throw new HttpException(details, status);
+    }
+  }
+
   async createBlockSlot(payload: CreateBlockSlotDto) {
     const locationId = this.resolveLocationId(payload.locationId);
 

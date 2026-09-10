@@ -114,6 +114,8 @@ export class GhlAvailabilitySyncService {
   /**
    * Prefer each GHL calendar's own service duration so Kållered (40) and
    * Majorstua calendars (often 30/45) stay correct under one shared env default.
+   * Also aligns slotInterval to duration — interval 15 with touching open
+   * windows invents mid-slot starts (10:45…) that Leyr never offered.
    */
   private async resolveSlotDurationMinutes(
     locationId: string,
@@ -127,9 +129,40 @@ export class GhlAvailabilitySyncService {
         ? ((res as { calendars: Record<string, unknown>[] }).calendars)
         : [];
       const cal = calendars.find((c) => String(c.id) === calendarId);
-      const n = Number(cal?.slotDuration);
-      if (Number.isFinite(n) && n > 0 && n <= 480) {
-        return Math.floor(n);
+      const duration = Number(cal?.slotDuration);
+      const interval = Number(cal?.slotInterval);
+      const durationMinutes =
+        Number.isFinite(duration) && duration > 0 && duration <= 480
+          ? Math.floor(duration)
+          : NaN;
+
+      if (
+        Number.isFinite(durationMinutes) &&
+        Number.isFinite(interval) &&
+        interval > 0 &&
+        interval !== durationMinutes
+      ) {
+        try {
+          await this.ghl.updateCalendar(
+            calendarId,
+            {
+              slotInterval: durationMinutes,
+              slotIntervalUnit: 'mins',
+            },
+            locationId,
+          );
+          this.logger.warn(
+            `Aligned GHL slotInterval ${interval}→${durationMinutes} for calendar=${calendarId} (stops phantom mid-window starts)`,
+          );
+        } catch (err) {
+          this.logger.warn(
+            `Could not align slotInterval calendar=${calendarId}: ${this.errorMessage(err)}`,
+          );
+        }
+      }
+
+      if (Number.isFinite(durationMinutes)) {
+        return durationMinutes;
       }
     } catch (err) {
       this.logger.warn(
