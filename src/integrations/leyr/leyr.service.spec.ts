@@ -247,6 +247,29 @@ describe('LeyrService', () => {
         }),
       );
     });
+
+    it('omits empty resource/service filters (facility day-batch)', async () => {
+      (httpService.get as jest.Mock).mockReturnValue(of(makeAxiosResponse([])));
+
+      await service.getTimeslots(
+        'cu-1',
+        undefined,
+        undefined,
+        '2026-06-01T00:00:00.000Z',
+        '2026-06-01T23:59:59.999Z',
+        'opus',
+      );
+
+      expect(httpService.get).toHaveBeenCalledWith(
+        expect.stringContaining('/timeslots'),
+        expect.objectContaining({
+          params: {
+            start: '2026-06-01T00:00:00.000Z',
+            end: '2026-06-01T23:59:59.999Z',
+          },
+        }),
+      );
+    });
   });
 
   describe('getAppointments', () => {

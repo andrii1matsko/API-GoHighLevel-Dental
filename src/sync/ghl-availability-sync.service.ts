@@ -18,6 +18,14 @@ interface LeyrTimeslot {
   start?: string;
   end?: string;
   available?: boolean;
+  resource_id?: string;
+  healthcare_service_id?: string;
+}
+
+/** Leyr free slot tagged with staff + service (from unfiltered day batch). */
+interface TaggedFreeSlot extends FreeSlotWindow {
+  resourceId: string;
+  healthcareServiceId: string;
 }
 
 export interface AvailabilitySyncResult {
@@ -45,8 +53,9 @@ export interface AvailabilitySyncFilter {
  * native booking widget only offers real free times (no Google Conflict).
  *
  * Horizon: always the full configured window (~31 days). Leyr is queried
- * day-by-day only because wide ranges 504 or silently omit slots; results are
- * merged before writing one complete dedicated schedule per staff.
+ * day-by-day per care unit (no resource/service filter) because wide ranges
+ * 504 or silently omit slots; responses include resource_id +
+ * healthcare_service_id so we split into per-staff GHL schedules.
  *
  * Safety: refuses to update a schedule if any free slot would be dropped.
  * Isolation: one dedicated schedule per (userId, calendarId) — never reuse /
@@ -228,14 +237,45 @@ export class GhlAvailabilitySyncService {
       });
 
       const calendars: AvailabilitySyncResult['calendars'] = [];
+      const horizonDates = listHorizonDates(
+        Date.now(),
+        this.horizonDays,
+        this.timezone,
+      );
+      // One Leyr day-batch per care unit (Anton tip) — not per staff×service.
+      const facilitySlotCache = new Map<
+        string,
+        {
+          slots: TaggedFreeSlot[];
+          closedDaysDueToError: string[];
+          leyrCalls: number;
+        }
+      >();
+
       for (const mapping of filtered) {
+        const cacheKey = `${mapping.facility.leyrEmr}:${mapping.facility.leyrCareUnitId}`;
+        if (!facilitySlotCache.has(cacheKey)) {
+          const batch = await this.fetchFacilityHorizonSlots({
+            careUnitId: mapping.facility.leyrCareUnitId,
+            horizonDates,
+            emr: mapping.facility.leyrEmr,
+          });
+          facilitySlotCache.set(cacheKey, batch);
+          this.logger.log(
+            `Leyr facility day-batch careUnit=${mapping.facility.leyrCareUnitId} ` +
+              `emr=${mapping.facility.leyrEmr} calls=${batch.leyrCalls} ` +
+              `slots=${batch.slots.length} closedDays=${batch.closedDaysDueToError.length}`,
+          );
+        }
+        const batch = facilitySlotCache.get(cacheKey)!;
         calendars.push(
           await this.syncCalendar({
             ghlCalendarId: mapping.ghlCalendarId,
             leyrHealthcareServiceId: mapping.leyrHealthcareServiceId,
             locationId: mapping.facility.ghlLocationId,
-            careUnitId: mapping.facility.leyrCareUnitId,
-            emr: mapping.facility.leyrEmr,
+            horizonDates,
+            facilitySlots: batch.slots,
+            closedDaysDueToError: batch.closedDaysDueToError,
             staff: mapping.facility.staffMappings.map((s) => ({
               ghlUserId: s.ghlUserId,
               leyrResourceId: s.leyrResourceId,
@@ -302,8 +342,9 @@ export class GhlAvailabilitySyncService {
     ghlCalendarId: string;
     leyrHealthcareServiceId: string;
     locationId: string;
-    careUnitId: string;
-    emr: string;
+    horizonDates: string[];
+    facilitySlots: TaggedFreeSlot[];
+    closedDaysDueToError: string[];
     staff: Array<{
       ghlUserId: string;
       leyrResourceId: string;
@@ -325,32 +366,28 @@ export class GhlAvailabilitySyncService {
       };
     }
 
-    const now = Date.now();
-    // Horizon is calendar days in clinic TZ — fetch exactly those days (no UTC tail).
-    const horizonDates = listHorizonDates(now, this.horizonDays, this.timezone);
     const durationMinutes = await this.resolveSlotDurationMinutes(
       opts.locationId,
       opts.ghlCalendarId,
     );
+    if (opts.closedDaysDueToError.length > 0) {
+      this.logger.warn(
+        `Leyr day fetch failed calendar=${opts.ghlCalendarId} days=${opts.closedDaysDueToError.join(',')}; those days closed (fail-closed)`,
+      );
+    }
 
     for (const member of opts.staff) {
       try {
-        const { slots, closedDaysDueToError } =
-          await this.fetchFreeWindowsForHorizonDays({
-            careUnitId: opts.careUnitId,
-            resourceId: member.leyrResourceId,
-            healthcareServiceId: opts.leyrHealthcareServiceId,
-            horizonDates,
-            emr: opts.emr,
-          });
-        if (closedDaysDueToError.length > 0) {
-          this.logger.warn(
-            `Leyr day fetch failed for user=${member.ghlUserId} days=${closedDaysDueToError.join(',')}; those days closed (fail-closed)`,
-          );
-        }
+        const slots = opts.facilitySlots
+          .filter(
+            (s) =>
+              s.resourceId === member.leyrResourceId &&
+              s.healthcareServiceId === opts.leyrHealthcareServiceId,
+          )
+          .map((s) => ({ start: s.start, end: s.end }));
         const { rules: dateRules, coveredSlotCount } = buildDateSpecificRules({
           slots,
-          horizonDates,
+          horizonDates: opts.horizonDates,
           timezone: this.timezone,
           defaultDurationMinutes: durationMinutes,
         });
@@ -361,7 +398,7 @@ export class GhlAvailabilitySyncService {
           userId: member.ghlUserId,
           calendarId: opts.ghlCalendarId,
           dateRules,
-          horizonDates,
+          horizonDates: opts.horizonDates,
           staffLabel: member.name ?? member.ghlUserId,
         });
         staffUpdated += 1;
@@ -435,53 +472,71 @@ export class GhlAvailabilitySyncService {
   }
 
   /**
-   * Fetch Leyr timeslots for each clinic-local horizon day.
-   * On persistent failure for a day: leave that day with no free slots
-   * (fail-closed) so we do not keep advertising stale opens.
+   * Fetch Leyr timeslots for each clinic-local horizon day without resource /
+   * service filters (1 call per day per care unit). Slots carry resource_id +
+   * healthcare_service_id for splitting into dedicated GHL staff schedules.
    */
-  private async fetchFreeWindowsForHorizonDays(opts: {
+  private async fetchFacilityHorizonSlots(opts: {
     careUnitId: string;
-    resourceId: string;
-    healthcareServiceId: string;
     horizonDates: string[];
     emr: string;
-  }): Promise<{ slots: FreeSlotWindow[]; closedDaysDueToError: string[] }> {
-    const merged: FreeSlotWindow[] = [];
+  }): Promise<{
+    slots: TaggedFreeSlot[];
+    closedDaysDueToError: string[];
+    leyrCalls: number;
+  }> {
+    const merged: TaggedFreeSlot[] = [];
     const seen = new Set<string>();
     const closedDaysDueToError: string[] = [];
+    let leyrCalls = 0;
+    let skippedUntagged = 0;
 
     for (const day of opts.horizonDates) {
       const { startMs, endMs } = clinicDayBoundsUtcMs(day, this.timezone);
       try {
         const raw = await this.getTimeslotsWithRetry(
           opts.careUnitId,
-          opts.resourceId,
-          opts.healthcareServiceId,
+          undefined,
+          undefined,
           new Date(startMs).toISOString(),
           new Date(endMs).toISOString(),
           opts.emr,
         );
-        for (const slot of this.toFreeWindows(raw)) {
-          const key = `${slot.start}|${slot.end ?? ''}`;
+        leyrCalls += 1;
+        for (const slot of this.toTaggedFreeWindows(raw)) {
+          const key = `${slot.healthcareServiceId}|${slot.resourceId}|${slot.start}|${slot.end ?? ''}`;
           if (seen.has(key)) continue;
           seen.add(key);
           merged.push(slot);
         }
+        // Count untagged only for diagnostics (slots missing ids are dropped).
+        const list = Array.isArray(raw) ? raw : [];
+        for (const item of list) {
+          const s = item as LeyrTimeslot;
+          if (!s?.start || s.available === false) continue;
+          if (!s.resource_id || !s.healthcare_service_id) skippedUntagged += 1;
+        }
       } catch (err) {
+        leyrCalls += 1;
         closedDaysDueToError.push(day);
         this.logger.warn(
-          `Leyr timeslots failed day=${day} resource=${opts.resourceId}: ${this.errorMessage(err)} — closing day`,
+          `Leyr day fetch failed careUnit=${opts.careUnitId} day=${day}: ${this.errorMessage(err)} — closing day`,
         );
       }
       await new Promise((r) => setTimeout(r, 80));
     }
-    return { slots: merged, closedDaysDueToError };
+    if (skippedUntagged > 0) {
+      this.logger.warn(
+        `Dropped ${skippedUntagged} Leyr timeslot(s) without resource_id/healthcare_service_id careUnit=${opts.careUnitId}`,
+      );
+    }
+    return { slots: merged, closedDaysDueToError, leyrCalls };
   }
 
   private async getTimeslotsWithRetry(
     careUnitId: string,
-    resourceId: string,
-    healthcareServiceId: string,
+    resourceId: string | undefined,
+    healthcareServiceId: string | undefined,
     start: string,
     end: string,
     emr: string,
@@ -514,14 +569,23 @@ export class GhlAvailabilitySyncService {
     throw lastError;
   }
 
-  private toFreeWindows(raw: unknown): FreeSlotWindow[] {
+  private toTaggedFreeWindows(raw: unknown): TaggedFreeSlot[] {
     const list = Array.isArray(raw) ? (raw as LeyrTimeslot[]) : [];
-    const out: FreeSlotWindow[] = [];
+    const out: TaggedFreeSlot[] = [];
     for (const slot of list) {
       if (!slot?.start || slot.available === false) continue;
+      const resourceId =
+        typeof slot.resource_id === 'string' ? slot.resource_id.trim() : '';
+      const healthcareServiceId =
+        typeof slot.healthcare_service_id === 'string'
+          ? slot.healthcare_service_id.trim()
+          : '';
+      if (!resourceId || !healthcareServiceId) continue;
       out.push({
         start: String(slot.start),
         end: slot.end ? String(slot.end) : undefined,
+        resourceId,
+        healthcareServiceId,
       });
     }
     return out;

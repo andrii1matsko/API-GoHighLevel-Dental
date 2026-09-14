@@ -272,14 +272,14 @@ export class LeyrService {
     end?: string,
     emr?: string,
   ) {
+    const params: Record<string, string> = {};
+    if (resourceId) params.resource_id = resourceId;
+    if (healthcareServiceId) params.healthcare_service_id = healthcareServiceId;
+    if (start) params.start = start;
+    if (end) params.end = end;
     return this.get(
       `/emrs/${this.resolveEmr(emr)}/care-units/${careUnitId}/timeslots`,
-      {
-        resource_id: resourceId,
-        healthcare_service_id: healthcareServiceId,
-        start,
-        end,
-      },
+      params,
     );
   }
 
