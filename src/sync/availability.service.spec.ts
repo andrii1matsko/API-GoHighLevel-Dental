@@ -42,11 +42,13 @@ describe('AvailabilityService', () => {
         findUnique: jest.fn().mockResolvedValue(mapping),
       },
       staffResourceMapping: {
-        findUnique: jest.fn().mockResolvedValue(
-          overrides?.staff === undefined
-            ? { leyrResourceId: '2287' }
-            : overrides.staff,
-        ),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(
+            overrides?.staff === undefined
+              ? { leyrResourceId: '2287' }
+              : overrides.staff,
+          ),
       },
     };
 

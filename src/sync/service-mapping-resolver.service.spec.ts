@@ -148,9 +148,6 @@ describe('ServiceMappingResolverService.resolveGhlTarget', () => {
     const svc = build(prisma);
     await expect(
       svc.listFacilityCalendarIds('L925_6509', 'muntra'),
-    ).resolves.toEqual([
-      'M4fGB5ZSScHmQCMg7y1T',
-      'XWSktFqDODgHIecPBvuW',
-    ]);
+    ).resolves.toEqual(['M4fGB5ZSScHmQCMg7y1T', 'XWSktFqDODgHIecPBvuW']);
   });
 });

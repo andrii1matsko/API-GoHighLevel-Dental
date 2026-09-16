@@ -138,7 +138,12 @@ export function slotToInterval(
   slot: FreeSlotWindow,
   timezone: string,
   defaultDurationMinutes = DEFAULT_DURATION_MINUTES,
-): { date: string; interval: TimeIntervalHm; slotFrom: string; slotTo: string } | null {
+): {
+  date: string;
+  interval: TimeIntervalHm;
+  slotFrom: string;
+  slotTo: string;
+} | null {
   const start = new Date(slot.start);
   if (Number.isNaN(start.getTime())) return null;
 

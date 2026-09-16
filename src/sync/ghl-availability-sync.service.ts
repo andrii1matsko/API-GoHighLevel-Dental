@@ -137,7 +137,7 @@ export class GhlAvailabilitySyncService {
       const calendars = Array.isArray(
         (res as { calendars?: unknown }).calendars,
       )
-        ? ((res as { calendars: Record<string, unknown>[] }).calendars)
+        ? (res as { calendars: Record<string, unknown>[] }).calendars
         : [];
       const cal = calendars.find((c) => String(c.id) === calendarId);
       const duration = Number(cal?.slotDuration);
@@ -460,9 +460,8 @@ export class GhlAvailabilitySyncService {
     const status =
       err && typeof err === 'object' && 'getStatus' in err
         ? (err as { getStatus: () => number }).getStatus()
-        : (err as { status?: number; response?: { statusCode?: number } })
-            ?.response?.statusCode ??
-          (err as { status?: number })?.status;
+        : ((err as { status?: number; response?: { statusCode?: number } })
+            ?.response?.statusCode ?? (err as { status?: number })?.status);
     if (status === 429 || status === 504 || status === 502 || status === 503) {
       return true;
     }
@@ -632,7 +631,10 @@ export class GhlAvailabilitySyncService {
     return out;
   }
 
-  private dedicatedScheduleName(calendarId: string, staffLabel: string): string {
+  private dedicatedScheduleName(
+    calendarId: string,
+    staffLabel: string,
+  ): string {
     return `${this.scheduleNamePrefix} · ${calendarId} · ${staffLabel}`.slice(
       0,
       120,
@@ -651,7 +653,9 @@ export class GhlAvailabilitySyncService {
     );
   }
 
-  private isLegacyExperimentalSchedule(schedule: Record<string, unknown>): boolean {
+  private isLegacyExperimentalSchedule(
+    schedule: Record<string, unknown>,
+  ): boolean {
     const name = typeof schedule.name === 'string' ? schedule.name : '';
     return /^Muntra availability\b/i.test(name);
   }
@@ -670,9 +674,8 @@ export class GhlAvailabilitySyncService {
       locationId: opts.locationId,
       userId: opts.userId,
     });
-    const sample =
-      opts.sampleDates?.length ?
-        opts.sampleDates
+    const sample = opts.sampleDates?.length
+      ? opts.sampleDates
       : listHorizonDates(Date.now(), 3, this.timezone).slice(0, 3);
 
     const schedules = searched.schedules.map((s) => {

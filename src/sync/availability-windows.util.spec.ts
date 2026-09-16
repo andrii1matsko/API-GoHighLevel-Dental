@@ -66,18 +66,10 @@ describe('availability-windows.util', () => {
 
   it('intervalCoversSlot requires full slot inside window', () => {
     expect(
-      intervalCoversSlot(
-        { from: '09:00', to: '09:30' },
-        '09:00',
-        '09:30',
-      ),
+      intervalCoversSlot({ from: '09:00', to: '09:30' }, '09:00', '09:30'),
     ).toBe(true);
     expect(
-      intervalCoversSlot(
-        { from: '09:00', to: '09:15' },
-        '09:00',
-        '09:30',
-      ),
+      intervalCoversSlot({ from: '09:00', to: '09:15' }, '09:00', '09:30'),
     ).toBe(false);
   });
 

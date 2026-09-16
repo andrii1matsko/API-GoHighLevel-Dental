@@ -48,7 +48,21 @@ pm2 restart ghl-api --update-env
 pm2 save
 
 echo "==> Health check"
-sleep 3
-curl -fsS http://127.0.0.1:3000/api/health
-echo
+HEALTH_URL="http://127.0.0.1:3000/api/health"
+HEALTH_OK=0
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  sleep 3
+  if curl -fsS "$HEALTH_URL" >/dev/null; then
+    curl -fsS "$HEALTH_URL"
+    echo
+    HEALTH_OK=1
+    break
+  fi
+  echo "    health attempt $attempt/10 failed, retrying..."
+done
+if [ "$HEALTH_OK" -ne 1 ]; then
+  echo "Health check failed after 30s — recent pm2 logs:" >&2
+  pm2 logs ghl-api --lines 40 --nostream >&2 || true
+  exit 1
+fi
 echo "==> Deploy OK: $(git rev-parse --short HEAD)"

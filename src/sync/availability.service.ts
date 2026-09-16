@@ -3,10 +3,7 @@ import { LeyrService } from '../integrations/leyr/leyr.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type GhlFreeSlotsResponse = Record<
-  string,
-  { slots: string[] } | string
->;
+export type GhlFreeSlotsResponse = Record<string, { slots: string[] } | string>;
 
 interface LeyrTimeslot {
   start?: string;
@@ -42,7 +39,10 @@ export class AvailabilityService {
       !Number.isFinite(opts.startDateMs) ||
       !Number.isFinite(opts.endDateMs)
     ) {
-      throw new HttpException('startDate and endDate are required numbers', 400);
+      throw new HttpException(
+        'startDate and endDate are required numbers',
+        400,
+      );
     }
     if (opts.endDateMs < opts.startDateMs) {
       throw new HttpException('endDate must be greater than startDate', 400);

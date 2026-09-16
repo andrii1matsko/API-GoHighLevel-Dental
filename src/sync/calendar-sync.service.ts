@@ -1166,7 +1166,6 @@ export class CalendarSyncService {
     return true;
   }
 
-
   /**
    * Leyr/Muntra → GHL availability only: create a block slot so free-slots /
    * SMS booking see the time as busy — without creating a patient contact.
@@ -1489,8 +1488,7 @@ export class CalendarSyncService {
         `Cancelled Leyr appointment ${link.leyrAppointmentId} via PATCH`,
       );
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Leyr cancel failed';
+      const message = err instanceof Error ? err.message : 'Leyr cancel failed';
       this.logger.warn(`Leyr cancel failed: ${message}`);
       await this.markRowFailed(
         rowId,
@@ -1635,10 +1633,7 @@ export class CalendarSyncService {
     // Update or create the GHL block slot to match the new times
     let newBlockSlotId = link.ghlBlockSlotId;
     if (leyrAppointment.status === 'cancelled' && link.ghlBlockSlotId) {
-      await this.deleteGhlBlockSlot(
-        link.ghlBlockSlotId,
-        ghlTarget.locationId,
-      );
+      await this.deleteGhlBlockSlot(link.ghlBlockSlotId, ghlTarget.locationId);
       newBlockSlotId = null;
     } else if (busyOnly && ghlTarget.locationId) {
       // Recreate calendar-level (+ staff) blocks; create first then delete old.
@@ -1762,10 +1757,7 @@ export class CalendarSyncService {
       }
       if (leyrAppointment.status === 'cancelled') {
         if (link.ghlBlockSlotId) {
-          await this.deleteGhlBlockSlot(
-            link.ghlBlockSlotId,
-            undefined,
-          );
+          await this.deleteGhlBlockSlot(link.ghlBlockSlotId, undefined);
         }
         await this.prismaService.appointmentLink.delete({
           where: { id: link.id },

@@ -1858,7 +1858,9 @@ export class GohighlevelService {
           ),
       );
       const data = response.data as { schedules?: Record<string, unknown>[] };
-      return { schedules: Array.isArray(data?.schedules) ? data.schedules : [] };
+      return {
+        schedules: Array.isArray(data?.schedules) ? data.schedules : [],
+      };
     } catch (error) {
       const axiosError = error as AxiosError;
       const status = axiosError.response?.status ?? 502;
@@ -1880,7 +1882,7 @@ export class GohighlevelService {
         ? data
         : data && typeof data === 'object'
           ? JSON.stringify(data)
-          : axiosError.message ?? '';
+          : (axiosError.message ?? '');
     const status = axiosError.response?.status;
     return (
       status === 429 ||
