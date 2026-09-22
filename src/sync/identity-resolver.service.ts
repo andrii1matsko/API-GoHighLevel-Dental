@@ -4,6 +4,7 @@ import { IdentityMapping } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.service';
 import { LeyrService } from '../integrations/leyr/leyr.service';
+import { normalizeNordicPersonalId } from './personnummer.util';
 
 interface LeyrPatientRecord {
   id?: string;
@@ -537,7 +538,7 @@ export class IdentityResolverService {
     ghlContactId: string,
   ): string {
     if (emr.toLowerCase() === 'muntra') {
-      return `GHL contact ${ghlContactId} has no Swedish personnummer — Muntra requires a 12-digit personnummer in a custom field (configure SYNC_GHL_PERSONNUMMER_FIELD_ID). Appointments must use patient_id se_personal_number:YYYYMMDDXXXX.`;
+      return `GHL contact ${ghlContactId} has no Swedish personnummer — Muntra requires a personnummer in a custom field (10-digit YYMMDDXXXX or 12-digit YYYYMMDDXXXX; configure SYNC_GHL_PERSONNUMMER_FIELD_ID). Appointments must use patient_id se_personal_number:YYYYMMDDXXXX.`;
     }
     return `GHL contact ${ghlContactId} has no Personnummer — Opus requires a Norwegian fødselsnummer in custom field (configure SYNC_GHL_PERSONNUMMER_FIELD_ID)`;
   }
@@ -613,14 +614,11 @@ export class IdentityResolverService {
   }
 
   /**
-   * Strip non-digits; accept Norwegian 11-digit fødselsnummer or
-   * Swedish 12-digit personnummer (YYYYMMDDXXXX) as used by Muntra.
+   * Strip non-digits; accept Norwegian 11-digit fødselsnummer or Swedish
+   * personnummer (12-digit YYYYMMDDXXXX, or common 10-digit YYMMDDXXXX).
    */
   private normalizePersonnummer(value: unknown): string | null {
-    if (value === null || value === undefined) return null;
-    const digits = String(value).replace(/\D/g, '');
-    if (digits.length === 11 || digits.length === 12) return digits;
-    return null;
+    return normalizeNordicPersonalId(value);
   }
 
   private async createLeyrPatientFromGhlContact(
