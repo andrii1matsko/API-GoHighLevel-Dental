@@ -6,6 +6,7 @@ import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.serv
 import { LeyrService } from '../integrations/leyr/leyr.service';
 import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
+import { GhlAvailabilitySyncService } from './ghl-availability-sync.service';
 
 describe('CalendarSyncService – Dashboard endpoints', () => {
   let service: CalendarSyncService;
@@ -29,6 +30,10 @@ describe('CalendarSyncService – Dashboard endpoints', () => {
         { provide: LeyrService, useValue: {} },
         { provide: IdentityResolverService, useValue: {} },
         { provide: ServiceMappingResolverService, useValue: {} },
+        {
+          provide: GhlAvailabilitySyncService,
+          useValue: { syncAll: jest.fn() },
+        },
         {
           provide: ConfigService,
           useValue: {
