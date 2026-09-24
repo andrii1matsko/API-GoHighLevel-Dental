@@ -924,6 +924,45 @@ describe('CalendarSyncService', () => {
       expect(leyr.createAppointment).toHaveBeenCalled();
     });
 
+    it('fail-closed: refuses create when timeslot pre-check throws (retryable)', async () => {
+      const { service, prisma, leyr, ghl } = makeService(
+        makePrismaStub(),
+        makeGhlStub(),
+        makeLeyrStub(),
+        makeConfigStub({
+          SYNC_PRECHECK_TIMESLOTS: 'true',
+          SYNC_CANCEL_GHL_ON_LEYR_REJECT: 'true',
+        }),
+      );
+      const syncRow = fakeSyncRow('GHL_TO_LEYR');
+
+      (prisma.appointmentSync.findMany as jest.Mock).mockResolvedValue([
+        syncRow,
+      ]);
+      (prisma.appointmentSync.findUnique as jest.Mock).mockResolvedValue(
+        syncRow,
+      );
+      (prisma.appointmentLink.findFirst as jest.Mock).mockResolvedValue(null);
+      (leyr.getTimeslots as jest.Mock).mockRejectedValue(
+        new Error('Leyr timeslots 503'),
+      );
+      (prisma.appointmentSync.update as jest.Mock).mockResolvedValue({});
+
+      const result = await service.syncAppointments('test');
+
+      expect(result.failedCount).toBe(1);
+      expect(leyr.createAppointment).not.toHaveBeenCalled();
+      expect(ghl.updateAppointment).not.toHaveBeenCalled();
+      expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'failed',
+            errorMessage: expect.stringContaining('TIMESLOT_PRECHECK_FAILED'),
+          }),
+        }),
+      );
+    });
+
     it('dead-letters immediately on Tiden har redan bokats and cancels GHL', async () => {
       const { service, prisma, leyr, ghl } = makeService(
         makePrismaStub(),

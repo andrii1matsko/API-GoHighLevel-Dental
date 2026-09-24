@@ -611,7 +611,7 @@ export class CalendarSyncService {
 
   /**
    * Returns true if Leyr still offers this start time (within tolerance).
-   * On timeslot API failure → null (caller should fail-open and try create).
+   * On timeslot API failure → null (caller must fail-closed: do not create).
    */
   private async isLeyrSlotAvailable(opts: {
     careUnitId: string;
@@ -653,7 +653,7 @@ export class CalendarSyncService {
       });
     } catch (err) {
       this.logger.warn(
-        `Timeslot pre-check failed (fail-open): ${
+        `Timeslot pre-check failed (fail-closed): ${
           err instanceof Error ? err.message : err
         }`,
       );
@@ -935,6 +935,16 @@ export class CalendarSyncService {
             ? ` / resource ${mapped.payload.resource_id}`
             : '');
         await this.markRowFailed(rowId, msg, { permanent: true });
+        return false;
+      }
+
+      // Timeslot API error → fail-closed (do not create; retry later).
+      if (available === null) {
+        const msg =
+          `TIMESLOT_PRECHECK_FAILED: could not verify free slot for ` +
+          `${row.ghlAppointment.startAt.toISOString()} in Leyr (${mapped.emr}) — ` +
+          `refusing create until timeslots are readable`;
+        await this.markRowFailed(rowId, msg);
         return false;
       }
     }
