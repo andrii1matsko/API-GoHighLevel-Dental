@@ -164,7 +164,8 @@ export class GhlAvailabilitySyncService {
     return Number.isFinite(fallback) && fallback > 0 ? fallback : 30;
   }
 
-  @Cron('30 */15 * * * *')
+  // Every 5 min (was 15): shorter stale window so GHL drops Muntra-taken slots sooner.
+  @Cron('30 */5 * * * *')
   async handleScheduledSync() {
     if (!this.enabled) return;
     await this.syncAll('scheduled');
