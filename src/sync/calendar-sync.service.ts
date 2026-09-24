@@ -7,6 +7,7 @@ import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.serv
 import { LeyrService } from '../integrations/leyr/leyr.service';
 import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
+import { GhlAvailabilitySyncService } from './ghl-availability-sync.service';
 import {
   mapGhlToLeyrPayload,
   mapLeyrToGhlPayload,
@@ -65,6 +66,7 @@ export class CalendarSyncService {
     private readonly configService: ConfigService,
     private readonly identityResolver: IdentityResolverService,
     private readonly serviceMappingResolver: ServiceMappingResolverService,
+    private readonly ghlAvailabilitySync: GhlAvailabilitySyncService,
   ) {
     this.maxRetries = this.configService.get<number>(
       'SYNC_MAX_RETRIES',
@@ -535,6 +537,58 @@ export class CalendarSyncService {
       startAt: ghlAppointment.startAt,
       errorMessage,
     });
+    this.triggerAvailabilityRefreshAfterSlotReject(
+      ghlAppointment,
+      errorMessage,
+    );
+  }
+
+  /**
+   * Slot already taken / missing in Leyr — drop that start from GHL widget now
+   * instead of waiting for the next availability cron (up to 5 min).
+   */
+  private shouldRefreshAvailabilityAfterReject(errorMessage: string): boolean {
+    return (
+      /tiden har redan bokats/i.test(errorMessage) ||
+      /already (been )?booked/i.test(errorMessage) ||
+      /NO_TIMESLOT/i.test(errorMessage) ||
+      /slot (is )?taken/i.test(errorMessage)
+    );
+  }
+
+  private triggerAvailabilityRefreshAfterSlotReject(
+    ghlAppointment: GhlAppointment,
+    errorMessage: string,
+  ): void {
+    if (!this.shouldRefreshAvailabilityAfterReject(errorMessage)) return;
+
+    const locationId = ghlAppointment.locationId?.trim();
+    const calendarId = ghlAppointment.calendarId?.trim();
+    if (!locationId || !calendarId) {
+      this.logger.warn(
+        `Skip availability refresh after Leyr reject — missing location/calendar on ${ghlAppointment.ghlAppointmentId}`,
+      );
+      return;
+    }
+
+    void this.ghlAvailabilitySync
+      .syncAll('after-leyr-reject', {
+        ghlLocationId: locationId,
+        ghlCalendarId: calendarId,
+      })
+      .then((result) => {
+        this.logger.log(
+          `Availability refresh after Leyr reject calendar=${calendarId} ` +
+            `staffRows=${result.calendars?.length ?? 0} enabled=${result.enabled}`,
+        );
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `Availability refresh after Leyr reject failed: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      });
   }
 
   private async cancelPhantomGhlAppointment(

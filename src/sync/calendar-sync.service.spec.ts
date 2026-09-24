@@ -6,6 +6,7 @@ import { GohighlevelService } from '../integrations/gohighlevel/gohighlevel.serv
 import { LeyrService } from '../integrations/leyr/leyr.service';
 import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
+import { GhlAvailabilitySyncService } from './ghl-availability-sync.service';
 
 function makePrismaStub() {
   return {
@@ -107,6 +108,16 @@ function makeServiceMappingStub() {
   } as unknown as ServiceMappingResolverService;
 }
 
+function makeAvailabilitySyncStub() {
+  return {
+    syncAll: jest.fn().mockResolvedValue({
+      enabled: true,
+      calendars: [],
+      completedAt: new Date().toISOString(),
+    }),
+  } as unknown as GhlAvailabilitySyncService;
+}
+
 function makeService(
   prisma = makePrismaStub(),
   ghl = makeGhlStub(),
@@ -114,6 +125,7 @@ function makeService(
   config = makeConfigStub(),
   identity = makeIdentityStub(),
   serviceMapping = makeServiceMappingStub(),
+  availabilitySync = makeAvailabilitySyncStub(),
 ) {
   return {
     service: new CalendarSyncService(
@@ -123,12 +135,14 @@ function makeService(
       config,
       identity,
       serviceMapping,
+      availabilitySync,
     ),
     prisma,
     ghl,
     leyr,
     identity,
     serviceMapping,
+    availabilitySync,
   };
 }
 
@@ -837,7 +851,7 @@ describe('CalendarSyncService', () => {
 
   describe('timeslot pre-check and loud fail', () => {
     it('rejects GHL create when Leyr timeslot is unavailable and cancels GHL appt', async () => {
-      const { service, prisma, leyr, ghl } = makeService(
+      const { service, prisma, leyr, ghl, availabilitySync } = makeService(
         makePrismaStub(),
         makeGhlStub(),
         makeLeyrStub(),
@@ -883,6 +897,13 @@ describe('CalendarSyncService', () => {
             errorMessage: expect.stringContaining('NO_TIMESLOT'),
           }),
         }),
+      );
+      expect(availabilitySync.syncAll).toHaveBeenCalledWith(
+        'after-leyr-reject',
+        {
+          ghlLocationId: 'loc-001',
+          ghlCalendarId: 'cal-001',
+        },
       );
     });
 
@@ -964,7 +985,7 @@ describe('CalendarSyncService', () => {
     });
 
     it('dead-letters immediately on Tiden har redan bokats and cancels GHL', async () => {
-      const { service, prisma, leyr, ghl } = makeService(
+      const { service, prisma, leyr, ghl, availabilitySync } = makeService(
         makePrismaStub(),
         makeGhlStub(),
         makeLeyrStub(),
@@ -1003,6 +1024,13 @@ describe('CalendarSyncService', () => {
             status: 'dead_letter',
           }),
         }),
+      );
+      expect(availabilitySync.syncAll).toHaveBeenCalledWith(
+        'after-leyr-reject',
+        {
+          ghlLocationId: 'loc-001',
+          ghlCalendarId: 'cal-001',
+        },
       );
     });
 

@@ -110,6 +110,13 @@ function makeService(
   identity = makeIdentityStub(),
   serviceMapping = makeServiceMappingStub(),
 ) {
+  const availabilitySync = {
+    syncAll: jest.fn().mockResolvedValue({
+      enabled: true,
+      calendars: [],
+      completedAt: new Date().toISOString(),
+    }),
+  };
   return {
     service: new CalendarSyncService(
       prisma,
@@ -118,12 +125,14 @@ function makeService(
       config,
       identity,
       serviceMapping,
+      availabilitySync as never,
     ),
     prisma,
     ghl,
     leyr,
     identity,
     serviceMapping,
+    availabilitySync,
   };
 }
 
