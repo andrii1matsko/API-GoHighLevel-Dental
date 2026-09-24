@@ -105,6 +105,7 @@ function makeServiceMappingStub() {
       groupId: 'group-001',
       assignedUserId: 'user-001',
     }),
+    listFacilityCalendarIds: jest.fn().mockResolvedValue(['cal-001']),
   } as unknown as ServiceMappingResolverService;
 }
 
