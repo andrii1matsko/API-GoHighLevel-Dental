@@ -13,6 +13,7 @@ import {
   mapLeyrToGhlPayload,
   mapLeyrToGhlUpdatePayload,
   mapGhlStatusToLeyr,
+  formatLeyrDateTime,
 } from './appointment-mapper';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
 import { CreateBlockSlotDto } from '../integrations/gohighlevel/dto/calendars.dto';
@@ -1441,8 +1442,11 @@ export class CalendarSyncService {
       isCancelled
         ? { status: 'cancelled' }
         : {
-            start: ghlAppointment.startAt.toISOString(),
-            end: ghlAppointment.endAt.toISOString(),
+            start: formatLeyrDateTime(
+              ghlAppointment.startAt,
+              link.leyrEmr,
+            ),
+            end: formatLeyrDateTime(ghlAppointment.endAt, link.leyrEmr),
             healthcare_service_id: leyrTarget.healthcareServiceId,
             resource_id: leyrTarget.resourceId || undefined,
             comment: ghlAppointment.title || undefined,

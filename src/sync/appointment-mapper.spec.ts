@@ -62,6 +62,26 @@ describe('mapGhlToLeyrPayload', () => {
     expect(mapped.careUnitId).toBe('cu-stockholm-01');
     expect(mapped.payload.care_unit_id).toBeUndefined();
   });
+
+  it('formats Muntra start/end with Stockholm offset (not UTC Z)', () => {
+    // 07:00Z = 09:00 Europe/Stockholm in CEST (Oct)
+    const mapped = mapGhlToLeyrPayload({
+      ghlAppointment: fakeGhlAppointment({
+        startAt: new Date('2026-10-08T07:00:00.000Z'),
+        endAt: new Date('2026-10-08T07:40:00.000Z'),
+      }),
+      leyrPatientId: 'leyr-patient-1',
+      leyrTarget: {
+        careUnitId: 'L925_6509',
+        emr: 'muntra',
+        healthcareServiceId: '359',
+        resourceId: '2287',
+      },
+    });
+
+    expect(mapped.payload.start).toBe('2026-10-08T09:00:00+02:00');
+    expect(mapped.payload.end).toBe('2026-10-08T09:40:00+02:00');
+  });
 });
 
 describe('mapLeyrToGhlUpdatePayload', () => {

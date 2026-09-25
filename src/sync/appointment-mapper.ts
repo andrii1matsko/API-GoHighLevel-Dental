@@ -8,6 +8,65 @@ import { LeyrTarget } from './service-mapping-resolver.service';
 import { GhlTarget } from './service-mapping-resolver.service';
 import { ghlStatusToLeyr, leyrStatusToGhl } from './status-mapper';
 
+/**
+ * Clinic wall-clock timezone for Leyr EHR payloads.
+ * Muntra treated `…Z` as local time (9:00 Stockholm → 7:00 in UI).
+ */
+export function clinicTimezoneForEmr(emr: string): string {
+  return emr.trim().toLowerCase() === 'opus'
+    ? 'Europe/Oslo'
+    : 'Europe/Stockholm';
+}
+
+/**
+ * Format an instant as ISO-8601 *with numeric offset* in the clinic zone
+ * (e.g. 2026-10-08T09:00:00+02:00), not UTC `Z`.
+ */
+export function formatLeyrDateTime(date: Date, emr: string): string {
+  const timeZone = clinicTimezoneForEmr(emr);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Invalid date for Leyr payload');
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((p) => p.type === type)?.value ?? '00';
+
+  const y = get('year');
+  const mo = get('month');
+  const d = get('day');
+  const h = get('hour');
+  const mi = get('minute');
+  const s = get('second');
+
+  // Offset = wall-clock-as-UTC − actual instant
+  const asUtcMs = Date.UTC(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(s),
+  );
+  const offsetMin = Math.round((asUtcMs - date.getTime()) / 60_000);
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  const oh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const om = String(abs % 60).padStart(2, '0');
+
+  return `${y}-${mo}-${d}T${h}:${mi}:${s}${sign}${oh}:${om}`;
+}
+
 // ---------------------------------------------------------------------------
 // GHL → Leyr
 // ---------------------------------------------------------------------------
@@ -36,8 +95,8 @@ export function mapGhlToLeyrPayload(input: GhlToLeyrInput): {
   }
 
   const payload: CreateLeyrAppointmentDto = {
-    start: ghlAppointment.startAt.toISOString(),
-    end: ghlAppointment.endAt.toISOString(),
+    start: formatLeyrDateTime(ghlAppointment.startAt, leyrTarget.emr),
+    end: formatLeyrDateTime(ghlAppointment.endAt, leyrTarget.emr),
     healthcare_service_id: leyrTarget.healthcareServiceId,
     resource_id: leyrTarget.resourceId,
     patient_id: leyrPatientId,

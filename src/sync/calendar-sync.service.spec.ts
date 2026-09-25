@@ -7,6 +7,7 @@ import { LeyrService } from '../integrations/leyr/leyr.service';
 import { IdentityResolverService } from './identity-resolver.service';
 import { ServiceMappingResolverService } from './service-mapping-resolver.service';
 import { GhlAvailabilitySyncService } from './ghl-availability-sync.service';
+import { formatLeyrDateTime } from './appointment-mapper';
 
 function makePrismaStub() {
   return {
@@ -406,8 +407,14 @@ describe('CalendarSyncService', () => {
         'leyr-ext-001',
         'cu-stockholm-01',
         expect.objectContaining({
-          start: '2026-09-09T15:00:00.000Z',
-          end: '2026-09-09T15:45:00.000Z',
+          start: formatLeyrDateTime(
+            new Date('2026-09-09T15:00:00.000Z'),
+            'opus',
+          ),
+          end: formatLeyrDateTime(
+            new Date('2026-09-09T15:45:00.000Z'),
+            'opus',
+          ),
           healthcare_service_id: 'hs-001',
           resource_id: 'res-001',
         }),
@@ -569,8 +576,8 @@ describe('CalendarSyncService', () => {
       expect(leyr.createAppointment).toHaveBeenCalledWith(
         'cu-stockholm-01',
         expect.objectContaining({
-          start: ghlAppt.startAt.toISOString(),
-          end: ghlAppt.endAt.toISOString(),
+          start: formatLeyrDateTime(ghlAppt.startAt, 'opus'),
+          end: formatLeyrDateTime(ghlAppt.endAt, 'opus'),
           healthcare_service_id: 'hs-001',
           resource_id: 'res-001',
           patient_id: 'pat-001',
