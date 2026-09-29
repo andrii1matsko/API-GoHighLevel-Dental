@@ -115,9 +115,25 @@ export function mapGhlToLeyrPayload(input: GhlToLeyrInput): {
   };
 }
 
-function buildLeyrComment(title: string | null, fallbackId: string): string {
-  if (title && title.trim().length > 0) return title.trim();
-  return `Synced from GHL ${fallbackId}`;
+/** Marker so clinic staff can see the booking came from Leadcom/GHL (not native Opus). */
+export const LEYR_LEADCOM_COMMENT_TAG = '(Leadcom)';
+
+/**
+ * Build Leyr appointment comment from GHL title.
+ * Always includes `(Leadcom)` (idempotent) — never put source tags in patient name.
+ */
+export function buildLeyrComment(
+  title: string | null | undefined,
+  fallbackId: string,
+): string {
+  const base =
+    title && title.trim().length > 0
+      ? title.trim()
+      : `Synced from GHL ${fallbackId}`;
+  if (/\(Leadcom\)/i.test(base)) {
+    return base;
+  }
+  return `${base} ${LEYR_LEADCOM_COMMENT_TAG}`;
 }
 
 // ---------------------------------------------------------------------------

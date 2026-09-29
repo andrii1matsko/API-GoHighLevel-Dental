@@ -13,6 +13,7 @@ import {
   mapLeyrToGhlPayload,
   mapLeyrToGhlUpdatePayload,
   mapGhlStatusToLeyr,
+  buildLeyrComment,
   formatLeyrDateTime,
 } from './appointment-mapper';
 import { SyncHistoryQueryDto } from './dto/sync-history-query.dto';
@@ -1449,7 +1450,10 @@ export class CalendarSyncService {
             end: formatLeyrDateTime(ghlAppointment.endAt, link.leyrEmr),
             healthcare_service_id: leyrTarget.healthcareServiceId,
             resource_id: leyrTarget.resourceId || undefined,
-            comment: ghlAppointment.title || undefined,
+            comment: buildLeyrComment(
+              ghlAppointment.title,
+              ghlAppointment.ghlAppointmentId,
+            ),
           },
       link.leyrEmr,
     );

@@ -1,5 +1,7 @@
 import { GhlAppointment, LeyrAppointment } from '@prisma/client';
 import {
+  buildLeyrComment,
+  LEYR_LEADCOM_COMMENT_TAG,
   mapGhlToLeyrPayload,
   mapLeyrToGhlUpdatePayload,
 } from './appointment-mapper';
@@ -81,6 +83,48 @@ describe('mapGhlToLeyrPayload', () => {
 
     expect(mapped.payload.start).toBe('2026-10-08T09:00:00+02:00');
     expect(mapped.payload.end).toBe('2026-10-08T09:40:00+02:00');
+  });
+
+  it('appends (Leadcom) to comment from GHL title', () => {
+    const mapped = mapGhlToLeyrPayload({
+      ghlAppointment: fakeGhlAppointment({ title: 'Undersøkelse' }),
+      leyrPatientId: 'leyr-patient-1',
+      leyrTarget: {
+        careUnitId: 'L971_472',
+        emr: 'opus',
+        healthcareServiceId: '7277',
+        resourceId: '6601',
+      },
+    });
+
+    expect(mapped.payload.comment).toBe(
+      `Undersøkelse ${LEYR_LEADCOM_COMMENT_TAG}`,
+    );
+  });
+
+  it('does not duplicate (Leadcom) if title already has it', () => {
+    const mapped = mapGhlToLeyrPayload({
+      ghlAppointment: fakeGhlAppointment({
+        title: `Exam ${LEYR_LEADCOM_COMMENT_TAG}`,
+      }),
+      leyrPatientId: 'leyr-patient-1',
+      leyrTarget: {
+        careUnitId: 'L971_472',
+        emr: 'opus',
+        healthcareServiceId: '7277',
+        resourceId: '6601',
+      },
+    });
+
+    expect(mapped.payload.comment).toBe(`Exam ${LEYR_LEADCOM_COMMENT_TAG}`);
+  });
+});
+
+describe('buildLeyrComment', () => {
+  it('falls back to Synced from GHL id with Leadcom tag', () => {
+    expect(buildLeyrComment(null, 'ghl-1')).toBe(
+      `Synced from GHL ghl-1 ${LEYR_LEADCOM_COMMENT_TAG}`,
+    );
   });
 });
 
