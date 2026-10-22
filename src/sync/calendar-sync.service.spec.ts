@@ -29,6 +29,17 @@ function makePrismaStub() {
     ghlAppointment: {
       findUnique: jest.fn(),
     },
+    calendarServiceMapping: {
+      findUnique: jest.fn().mockResolvedValue({
+        facilityMappingId: 'facility-1',
+      }),
+    },
+    staffResourceMapping: {
+      findMany: jest.fn().mockResolvedValue([
+        { leyrResourceId: 'res-001' },
+        { leyrResourceId: 'res-002' },
+      ]),
+    },
     $transaction: jest.fn(async (ops: unknown) => ops),
   } as unknown as PrismaService;
 }
@@ -40,6 +51,7 @@ function makeGhlStub() {
     deleteEvent: jest.fn(),
     createBlockSlot: jest.fn(),
     updateBlockSlot: jest.fn(),
+    sendSmsToContact: jest.fn().mockResolvedValue({}),
   } as unknown as GohighlevelService;
 }
 
@@ -62,6 +74,9 @@ function makeConfigStub(overrides: Record<string, string> = {}) {
     SYNC_GHL_DEFAULT_CALENDAR_ID: 'cal-001',
     SYNC_PRECHECK_TIMESLOTS: 'false',
     SYNC_CANCEL_GHL_ON_LEYR_REJECT: 'false',
+    SYNC_NOTIFY_PATIENT_ON_SLOT_REJECT: 'true',
+    SYNC_REJECT_PATIENT_SMS:
+      'Sorry — your appointment was cancelled because that time was no longer available. Please book another slot.',
     SYNC_LEYR_TO_GHL_BLOCK_SLOTS_ONLY: 'false',
     GHL_LOCATION_ID_OAUTH: '',
     GHL_LOCATION_ID: '',
@@ -891,11 +906,19 @@ describe('CalendarSyncService', () => {
 
       expect(result.failedCount).toBe(1);
       expect(leyr.createAppointment).not.toHaveBeenCalled();
+      expect(ghl.sendSmsToContact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          locationId: 'loc-001',
+          contactId: 'contact-001',
+          message: expect.stringContaining('book'),
+        }),
+      );
       expect(ghl.updateAppointment).toHaveBeenCalledWith(
         'ghl-ext-001',
         expect.objectContaining({
           appointmentStatus: 'cancelled',
           locationId: 'loc-001',
+          toNotify: true,
         }),
       );
       expect(prisma.appointmentSync.update).toHaveBeenCalledWith(
@@ -937,6 +960,7 @@ describe('CalendarSyncService', () => {
           start: startIso,
           end: syncRow.ghlAppointment.endAt.toISOString(),
           available: true,
+          resource_id: 'res-001',
         },
       ]);
       (leyr.createAppointment as jest.Mock).mockResolvedValue([

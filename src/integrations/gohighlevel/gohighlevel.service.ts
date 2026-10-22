@@ -2065,4 +2065,59 @@ export class GohighlevelService {
       throw new HttpException(details, status);
     }
   }
+
+  /**
+   * Send an SMS to a contact via Conversations API (location token).
+   */
+  async sendSmsToContact(opts: {
+    locationId: string;
+    contactId: string;
+    message: string;
+    accessToken?: string;
+  }): Promise<unknown> {
+    const locationId = this.resolveLocationId(opts.locationId);
+    const contactId = opts.contactId?.trim();
+    const message = opts.message?.trim();
+    if (!contactId) {
+      throw new HttpException('Missing contactId', 400);
+    }
+    if (!message) {
+      throw new HttpException('Missing message', 400);
+    }
+
+    try {
+      const response = await this.runWithManagedLocationToken(
+        opts.accessToken,
+        locationId,
+        async (token) =>
+          firstValueFrom(
+            this.httpService.post(
+              `${this.baseUrl}/conversations/messages`,
+              {
+                type: 'SMS',
+                contactId,
+                message,
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Version: '2021-04-15',
+                },
+              },
+            ),
+          ),
+      );
+      return response.data;
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError.response?.status ?? 502;
+      const details =
+        typeof axiosError.response?.data === 'string'
+          ? axiosError.response.data
+          : (axiosError.response?.data ??
+            'Failed to send GoHighLevel SMS');
+      this.logger.error('GoHighLevel send SMS failed', details);
+      throw new HttpException(details, status);
+    }
+  }
 }

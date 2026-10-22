@@ -52,6 +52,8 @@ export class CalendarSyncService {
   private readonly echoGuardSeconds: number;
   private readonly precheckTimeslots: boolean;
   private readonly cancelGhlOnLeyrReject: boolean;
+  private readonly notifyPatientOnSlotReject: boolean;
+  private readonly rejectPatientSmsMessage: string;
   private readonly alertWebhookUrl: string | null;
   /**
    * When true (default), Leyr→GHL sync only creates GHL *block slots* to mark
@@ -86,6 +88,19 @@ export class CalendarSyncService {
         'SYNC_CANCEL_GHL_ON_LEYR_REJECT',
         'true',
       ) !== 'false';
+    this.notifyPatientOnSlotReject =
+      this.configService.get<string>(
+        'SYNC_NOTIFY_PATIENT_ON_SLOT_REJECT',
+        'true',
+      ) !== 'false';
+    this.rejectPatientSmsMessage =
+      this.configService
+        .get<string>(
+          'SYNC_REJECT_PATIENT_SMS',
+          'Beklager – timeavtalen din ble dessverre avbestilt fordi den valgte tiden ikke lenger var ledig hos tannlegen. Vennligst book en ny time.',
+        )
+        ?.trim() ||
+      'Beklager – timeavtalen din ble dessverre avbestilt fordi den valgte tiden ikke lenger var ledig hos tannlegen. Vennligst book en ny time.';
     const alertUrl = this.configService.get<string>('SYNC_ALERT_WEBHOOK_URL');
     this.alertWebhookUrl = alertUrl?.trim() ? alertUrl.trim() : null;
     this.leyrToGhlBlockSlotsOnly =
@@ -524,13 +539,22 @@ export class CalendarSyncService {
   /**
    * Cancel phantom GHL booking + optional Slack/Teams webhook when Leyr reject
    * is permanent (slot taken, missing personnummer, etc.).
+   * For slot rejects: SMS the patient to rebook (never silently switch dentist).
    */
   private async handleRejectedGhlBooking(
     ghlAppointment: GhlAppointment,
     errorMessage: string,
   ): Promise<void> {
+    const slotReject = this.shouldRefreshAvailabilityAfterReject(errorMessage);
+    if (slotReject && this.notifyPatientOnSlotReject) {
+      // Best-effort SMS. Delivery is not guaranteed (no phone, DND, carrier).
+      // Always keep GHL toNotify=true below as a safety net.
+      await this.notifyPatientSlotRejected(ghlAppointment);
+    }
     if (this.cancelGhlOnLeyrReject) {
-      await this.cancelPhantomGhlAppointment(ghlAppointment, errorMessage);
+      await this.cancelPhantomGhlAppointment(ghlAppointment, errorMessage, {
+        toNotify: true,
+      });
     }
     await this.notifySyncFailure({
       ghlAppointmentId: ghlAppointment.ghlAppointmentId,
@@ -543,6 +567,37 @@ export class CalendarSyncService {
       ghlAppointment,
       errorMessage,
     );
+  }
+
+  private async notifyPatientSlotRejected(
+    ghlAppointment: GhlAppointment,
+  ): Promise<boolean> {
+    const contactId = ghlAppointment.contactId?.trim();
+    const locationId = ghlAppointment.locationId?.trim();
+    if (!contactId || !locationId) {
+      this.logger.warn(
+        `Skip patient SMS on slot reject — missing contact/location on ${ghlAppointment.ghlAppointmentId}`,
+      );
+      return false;
+    }
+    try {
+      await this.gohighlevelService.sendSmsToContact({
+        locationId,
+        contactId,
+        message: this.rejectPatientSmsMessage,
+      });
+      this.logger.log(
+        `Sent slot-reject SMS to contact ${contactId} for GHL ${ghlAppointment.ghlAppointmentId}`,
+      );
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `Patient SMS on slot reject failed for ${ghlAppointment.ghlAppointmentId}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -596,15 +651,17 @@ export class CalendarSyncService {
   private async cancelPhantomGhlAppointment(
     ghlAppointment: GhlAppointment,
     errorMessage: string,
+    opts: { toNotify?: boolean } = {},
   ): Promise<void> {
     const shortReason = errorMessage.slice(0, 400);
+    const toNotify = opts.toNotify !== false;
     try {
       await this.gohighlevelService.updateAppointment(
         ghlAppointment.ghlAppointmentId,
         {
           locationId: ghlAppointment.locationId,
           appointmentStatus: 'cancelled',
-          toNotify: true,
+          toNotify,
           description: `[Sync rejected] ${shortReason}`,
         },
       );
@@ -666,17 +723,21 @@ export class CalendarSyncService {
   }
 
   /**
-   * Returns true if Leyr still offers this start time (within tolerance).
-   * On timeslot API failure → null (caller must fail-closed: do not create).
+   * Live Leyr timeslot check for the mapped dentist only.
+   * Never silently switch staff — if the slot is gone, caller cancels + SMS rebook.
    */
-  private async isLeyrSlotAvailable(opts: {
+  private async resolveLeyrSlotForBooking(opts: {
     careUnitId: string;
     emr: string;
     healthcareServiceId: string;
-    resourceId?: string | null;
+    preferredResourceId?: string | null;
     startAt: Date;
     endAt: Date;
-  }): Promise<boolean | null> {
+  }): Promise<
+    | { status: 'available'; resourceId?: string }
+    | { status: 'unavailable' }
+    | { status: 'error' }
+  > {
     const dayStart = new Date(opts.startAt);
     dayStart.setUTCHours(0, 0, 0, 0);
     const dayEnd = new Date(opts.startAt);
@@ -684,36 +745,40 @@ export class CalendarSyncService {
     // Widen window ±1 day for timezone edge cases
     const rangeStart = new Date(dayStart.getTime() - 24 * 60 * 60 * 1000);
     const rangeEnd = new Date(dayEnd.getTime() + 24 * 60 * 60 * 1000);
+    const target = opts.startAt.getTime();
+    const preferred = opts.preferredResourceId || undefined;
 
     try {
       const raw = await this.leyrService.getTimeslots(
         opts.careUnitId,
-        opts.resourceId || undefined,
+        preferred,
         opts.healthcareServiceId,
         rangeStart.toISOString(),
         rangeEnd.toISOString(),
         opts.emr,
       );
-
       const slots = Array.isArray(raw)
         ? (raw as Array<Record<string, unknown>>)
         : [];
-
-      const target = opts.startAt.getTime();
-      return slots.some((slot) => {
+      const match = slots.find((slot) => {
         if (!slot?.start) return false;
         if (slot.available === false) return false;
         const slotStart = new Date(String(slot.start)).getTime();
         if (Number.isNaN(slotStart)) return false;
         return Math.abs(slotStart - target) <= TIMESLOT_MATCH_TOLERANCE_MS;
       });
+      if (!match) return { status: 'unavailable' };
+      return {
+        status: 'available',
+        resourceId: preferred,
+      };
     } catch (err) {
       this.logger.warn(
         `Timeslot pre-check failed (fail-closed): ${
           err instanceof Error ? err.message : err
         }`,
       );
-      return null;
+      return { status: 'error' };
     }
   }
 
@@ -971,18 +1036,18 @@ export class CalendarSyncService {
       leyrTarget,
     });
 
-    // 3b. Pre-check Leyr/Muntra free slots so we don't create phantom GHL bookings
+    // 3b. Live Leyr timeslot check for the mapped dentist (no silent staff switch)
     if (this.precheckTimeslots && row.ghlAppointment.startAt) {
-      const available = await this.isLeyrSlotAvailable({
+      const resolved = await this.resolveLeyrSlotForBooking({
         careUnitId: mapped.careUnitId,
         emr: mapped.emr,
         healthcareServiceId: mapped.payload.healthcare_service_id,
-        resourceId: mapped.payload.resource_id,
+        preferredResourceId: mapped.payload.resource_id,
         startAt: row.ghlAppointment.startAt,
         endAt: row.ghlAppointment.endAt,
       });
 
-      if (available === false) {
+      if (resolved.status === 'unavailable') {
         const msg =
           `NO_TIMESLOT: requested start ${row.ghlAppointment.startAt.toISOString()} ` +
           `is not available in Leyr (${mapped.emr}) for service ` +
@@ -995,7 +1060,7 @@ export class CalendarSyncService {
       }
 
       // Timeslot API error → fail-closed (do not create; retry later).
-      if (available === null) {
+      if (resolved.status === 'error') {
         const msg =
           `TIMESLOT_PRECHECK_FAILED: could not verify free slot for ` +
           `${row.ghlAppointment.startAt.toISOString()} in Leyr (${mapped.emr}) — ` +
